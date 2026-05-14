@@ -23,7 +23,7 @@
             inputmode="text"
             autocomplete="off"
             spellcheck="false"
-            placeholder="Type an expression like 12*(3+4)"
+            placeholder="Type an expression like 12*(3+4) or sin(30)"
             aria-label="Expression"
           />
           <div id="result" class="result" aria-label="Result">&nbsp;</div>
@@ -32,34 +32,45 @@
 
         <div class="grid" aria-label="Buttons">
           <button class="btn btn-fn" data-action="clear">C</button>
-          <button class="btn btn-fn" data-action="back">⌫</button>
+          <button class="btn btn-fn" data-action="back"></button>
           <button class="btn btn-op" data-insert="(">(</button>
           <button class="btn btn-op" data-insert=")">)</button>
 
           <button class="btn" data-insert="7">7</button>
           <button class="btn" data-insert="8">8</button>
           <button class="btn" data-insert="9">9</button>
-          <button class="btn btn-op" data-insert="/">÷</button>
+          <button class="btn btn-op" data-insert="/">&divide;</button>
 
           <button class="btn" data-insert="4">4</button>
           <button class="btn" data-insert="5">5</button>
           <button class="btn" data-insert="6">6</button>
-          <button class="btn btn-op" data-insert="*">×</button>
+          <button class="btn btn-op" data-insert="*">&times;</button>
 
           <button class="btn" data-insert="1">1</button>
           <button class="btn" data-insert="2">2</button>
           <button class="btn" data-insert="3">3</button>
-          <button class="btn btn-op" data-insert="-">−</button>
+          <button class="btn btn-op" data-insert="-">&minus;</button>
 
           <button class="btn btn-wide" data-insert="0">0</button>
           <button class="btn" data-insert=".">.</button>
           <button class="btn btn-op" data-insert="+">+</button>
 
           <button class="btn btn-wide btn-eq" data-action="equals">=</button>
+
+          <!-- Scientific functions -->
+          <button class="btn btn-op" data-insert="sin(">sin</button>
+          <button class="btn btn-op" data-insert="cos(">cos</button>
+          <button class="btn btn-op" data-insert="tan(">tan</button>
+          <button class="btn btn-op" data-insert="log(">log</button>
+          <button class="btn btn-op" data-insert="ln(">ln</button>
+          <button class="btn btn-op" data-insert="sqrt(">sqrt</button>
+          <button class="btn btn-op" data-insert="exp(">exp</button>
+          <button class="btn btn-op" data-insert="pi">&pi;</button>
+          <button class="btn btn-op" data-insert="e">e</button>
         </div>
 
         <footer class="hint">
-          Tip: You can type directly. Supported ops: + - * / % ** and parentheses.
+          Tip: You can type directly. Supported ops: + - * / % **, parentheses, and scientific functions: sin, cos, tan, log, ln, sqrt, exp, pi, e.
         </footer>
       </section>
     </main>
