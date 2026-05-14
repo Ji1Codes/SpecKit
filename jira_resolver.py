@@ -96,6 +96,34 @@ async def fetch_open_tickets(
         return resp.json().get("issues", [])
 
 
+async def fetch_done_tickets(
+    jira_url: str,
+    email: str,
+    token: str,
+    project: str,
+    *,
+    max_results: int = 50,
+) -> list[dict]:
+    """Return Done/Resolved Jira tickets for the given project."""
+    headers = _auth_headers(email, token)
+    base = jira_url.rstrip("/")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{base}/rest/api/3/search/jql",
+            headers=headers,
+            params={
+                "jql": f'project = "{project}" AND statusCategory = Done ORDER BY updated DESC',
+                "maxResults": max_results,
+                "fields": "summary,status,resolutiondate,updated",
+            },
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Jira done-search failed: {resp.status_code} — {resp.text}")
+
+        return resp.json().get("issues", [])
+
+
 async def post_comment(
     jira_url: str, email: str, token: str, ticket_id: str, text: str
 ) -> None:

@@ -217,8 +217,40 @@ async def jira_open_tickets(limit: int = 50):
 
 @app.get("/api/jira/resolved")
 async def jira_resolved_tickets():
-    """Return the in-memory list of tickets resolved by the poller this session."""
-    return {"tickets": _resolved_history, "count": len(_resolved_history)}
+    """Return tickets resolved by the poller + all Done tickets from Jira."""
+    from jira_resolver import fetch_done_tickets
+
+    jira_url = os.environ.get("JIRA_BASE_URL", "")
+    email    = os.environ.get("JIRA_EMAIL", "")
+    token    = os.environ.get("JIRA_API_TOKEN", "")
+    project  = os.environ.get("JIRA_PROJECT_KEY", "")
+
+    # Start with in-memory poller history (richest data)
+    combined: dict[str, dict] = {t["key"]: t for t in _resolved_history}
+
+    if all([jira_url, email, token, project]):
+        try:
+            done_issues = await fetch_done_tickets(jira_url, email, token, project)
+            for issue in done_issues:
+                key    = issue["key"]
+                fields = issue.get("fields", {})
+                if key not in combined:          # don't overwrite richer poller entry
+                    combined[key] = {
+                        "key":           key,
+                        "summary":       fields.get("summary") or "",
+                        "files_changed": [],
+                        "spec":          "",
+                        "plan":          "",
+                        "tasks":         "",
+                        "solution":      "",
+                        "resolved_at":   fields.get("resolutiondate") or fields.get("updated") or "",
+                        "source":        "jira",
+                    }
+        except Exception as exc:
+            logger.warning(f"[RESOLVED] Could not fetch Jira done tickets: {exc}")
+
+    tickets = list(combined.values())
+    return {"tickets": tickets, "count": len(tickets)}
 
 
 @app.post("/api/jira/resolve", response_model=ResolveResponse)
