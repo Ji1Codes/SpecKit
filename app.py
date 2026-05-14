@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 # processed gets picked up, run through the full SpecKit pipeline, and
 # transitioned to Done — automatically, without any manual trigger.
 
-_POLL_INTERVAL = 15          # seconds between polls
+_POLL_INTERVAL = 30          # seconds between polls
 _in_flight: set[str] = set() # ticket IDs currently being processed
 
 
