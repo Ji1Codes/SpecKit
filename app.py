@@ -28,8 +28,30 @@ logger = logging.getLogger(__name__)
 # processed gets picked up, run through the full SpecKit pipeline, and
 # transitioned to Done — automatically, without any manual trigger.
 
+import datetime
+import json
+import pathlib
+
 _POLL_INTERVAL = 30          # seconds between polls
 _in_flight: set[str] = set() # ticket IDs currently being processed
+_MAX_HISTORY = 50
+_HISTORY_FILE = pathlib.Path(__file__).parent / "resolved_history.json"
+
+def _load_history() -> list[dict]:
+    try:
+        if _HISTORY_FILE.exists():
+            return json.loads(_HISTORY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return []
+
+def _save_history(history: list[dict]) -> None:
+    try:
+        _HISTORY_FILE.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        logger.warning(f"[HISTORY] Could not save history: {exc}")
+
+_resolved_history: list[dict] = _load_history()
 
 
 async def _resolve_ticket_background(
@@ -46,6 +68,19 @@ async def _resolve_ticket_background(
         logger.info(
             f"[POLLER] Resolved {ticket_id} | files changed: {pipeline.get('files_changed', [])}"
         )
+        _resolved_history.insert(0, {
+            "key":          ticket_id,
+            "summary":      summary,
+            "files_changed": pipeline.get("files_changed", []),
+            "spec":         pipeline.get("spec", ""),
+            "plan":         pipeline.get("plan", ""),
+            "tasks":        pipeline.get("tasks", ""),
+            "solution":     pipeline.get("solution", ""),
+            "resolved_at":  datetime.datetime.now().isoformat(),
+        })
+        if len(_resolved_history) > _MAX_HISTORY:
+            _resolved_history.pop()
+        _save_history(_resolved_history)
     except Exception as exc:
         logger.error(f"[POLLER] Failed to resolve {ticket_id}: {exc}", exc_info=True)
     finally:
@@ -178,6 +213,12 @@ async def jira_open_tickets(limit: int = 50):
         )
 
     return JiraOpenResponse(project=project, count=len(out), issues=out)
+
+
+@app.get("/api/jira/resolved")
+async def jira_resolved_tickets():
+    """Return the in-memory list of tickets resolved by the poller this session."""
+    return {"tickets": _resolved_history, "count": len(_resolved_history)}
 
 
 @app.post("/api/jira/resolve", response_model=ResolveResponse)

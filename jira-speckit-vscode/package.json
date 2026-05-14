@@ -1,0 +1,119 @@
+{
+  "name": "jira-speckit",
+  "displayName": "Jira SpecKit",
+  "description": "Auto-resolve Jira tickets using the SpecKit AI pipeline — view open tickets, resolutions, files changed, and trigger resolution from VS Code.",
+  "version": "0.1.1",
+  "publisher": "jivan",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "keywords": ["jira", "speckit", "ai", "automation", "tickets"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Jira SpecKit",
+      "properties": {
+        "jiraSpeckit.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL of the running SpecKit FastAPI server."
+        },
+        "jiraSpeckit.jiraBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Jira base URL used to open tickets in the browser (e.g. https://your-org.atlassian.net)."
+        },
+        "jiraSpeckit.autoRefreshSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "description": "How often (in seconds) to refresh the ticket lists automatically."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "jira-speckit",
+          "title": "Jira SpecKit",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "jira-speckit": [
+        {
+          "id": "jiraSpeckit.openTickets",
+          "name": "Open Tickets"
+        },
+        {
+          "id": "jiraSpeckit.resolvedTickets",
+          "name": "Resolved This Session"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "jiraSpeckit.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "jiraSpeckit.resolveAll",
+        "title": "Resolve All Open Tickets",
+        "icon": "$(play)"
+      },
+      {
+        "command": "jiraSpeckit.openInBrowser",
+        "title": "Open in Jira",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "jiraSpeckit.viewResolution",
+        "title": "View Resolution Details",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "jiraSpeckit.copyTicketKey",
+        "title": "Copy Ticket Key",
+        "icon": "$(copy)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "jiraSpeckit.refresh",
+          "when": "view == jiraSpeckit.openTickets || view == jiraSpeckit.resolvedTickets",
+          "group": "navigation@2"
+        },
+        {
+          "command": "jiraSpeckit.resolveAll",
+          "when": "view == jiraSpeckit.openTickets",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "jiraSpeckit.openInBrowser",
+          "when": "viewItem == openTicket",
+          "group": "inline@1"
+        },
+        {
+          "command": "jiraSpeckit.copyTicketKey",
+          "when": "viewItem == openTicket",
+          "group": "inline@2"
+        },
+        {
+          "command": "jiraSpeckit.viewResolution",
+          "when": "viewItem == resolvedTicket",
+          "group": "inline@1"
+        },
+        {
+          "command": "jiraSpeckit.openInBrowser",
+          "when": "viewItem == resolvedTicket",
+          "group": "inline@2"
+        }
+      ]
+    }
+  }
+}
