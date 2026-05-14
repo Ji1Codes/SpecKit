@@ -1,0 +1,17 @@
+[
+  {
+    "key": "PM-42",
+    "summary": "Fix authentication flow on mobile app (iOS 17+)",
+    "files_changed": [
+      "src/auth/login.py",
+      "static/app.js",
+      "tests/test_auth.py",
+      "requirements.txt"
+    ],
+    "spec": "Users on iOS 17+ are unable to complete login due to a WebKit restriction introduced in the latest OS update. The biometric authentication flow breaks silently and the user is left on a blank screen.\n\nExpected: User taps login → biometric prompt → authenticated session.\nActual: User taps login → blank screen after biometric.",
+    "plan": "1. Investigate iOS 17 WebKit SameSite cookie restrictions\n2. Update /auth/login endpoint to return token in Authorization header instead of cookie\n3. Patch static/app.js to store and send Bearer token\n4. Add CORS headers for mobile WebView origins\n5. Write regression tests covering the mobile login flow",
+    "tasks": "- [x] Patch login endpoint for iOS 17 cookie compatibility\n- [x] Update static/app.js auth handler to use Bearer token\n- [x] Add CORS middleware for mobile origins\n- [x] Write tests for mobile auth flow\n- [x] Update requirements.txt with python-jose bump",
+    "solution": "Root cause: iOS 17 WebKit now blocks SameSite=Lax cookies in cross-origin WebView contexts.\n\nFix applied:\n- Switched from session cookies to short-lived JWT Bearer tokens returned in the response body\n- Updated static/app.js to store token in sessionStorage and attach it as Authorization: Bearer <token> on every request\n- Added FastAPI CORS middleware entry for app.forgex.io mobile origin\n- Bumped python-jose to 3.3.0 for the latest JWT fixes\n\nAll 14 auth tests passing. Verified on iOS 17.4 simulator.",
+    "resolved_at": "2026-05-14T09:15:00Z"
+  }
+]

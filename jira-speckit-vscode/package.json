@@ -2,11 +2,12 @@
   "name": "jira-speckit",
   "displayName": "Jira SpecKit",
   "description": "Auto-resolve Jira tickets using the SpecKit AI pipeline — view open tickets, resolutions, files changed, and trigger resolution from VS Code.",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "publisher": "jivan",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
   "keywords": ["jira", "speckit", "ai", "automation", "tickets"],
+  "icon": "media/icon.png",
   "activationEvents": ["onStartupFinished"],
   "main": "./src/extension.js",
   "contributes": {
