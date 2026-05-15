@@ -1,17 +1,17 @@
 :root {
-  --color-primary: #FF9933;
-  --color-primary-light: #FFB366;
-  --color-primary-dark: #CC7A00;
-  --color-secondary: #FFB366;
-  --color-background: #FFF8F0;
-  --color-surface: #FFFFFF;
-  --color-error: #DC2626;
-  --color-warning: #F59E42;
-  --color-success: #22C55E;
+  --color-primary: #0000FF;
+  --color-primary-light: #3366FF;
+  --color-primary-dark: #0000CC;
+  --color-secondary: #000000;
+  --color-background: #000000;
+  --color-surface: #11131a;
+  --color-error: #FF0000;
+  --color-warning: #FFFF00;
+  --color-success: #00FF00;
   --color-on-primary: #FFFFFF;
-  --color-on-background: #1E293B;
-  --gradient-primary: linear-gradient(90deg, #FFB366 0%, #FF9933 100%);
-  --shadow: 0 8px 32px rgba(255, 153, 51, 0.10);
+  --color-on-background: #FFFFFF;
+  --gradient-primary: linear-gradient(90deg, #3366FF 0%, #0000FF 100%);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
 }
 
 * {
@@ -39,7 +39,7 @@ body {
 .calculator {
   width: min(420px, 95vw);
   background: var(--color-surface);
-  border: 1.5px solid rgba(255, 153, 51, 0.10);
+  border: 1.5px solid rgba(0,0,0,0.18);
   border-radius: 18px;
   box-shadow: var(--shadow);
   padding: 22px 18px 18px 18px;
@@ -47,8 +47,8 @@ body {
 }
 
 .calculator:hover, .calculator:focus-within {
-  box-shadow: 0 12px 40px rgba(255, 179, 102, 0.13), var(--shadow);
-  border-color: rgba(255, 153, 51, 0.18);
+  box-shadow: 0 12px 40px rgba(51,102,255,0.13), var(--shadow);
+  border-color: rgba(0,0,0,0.28);
 }
 
 .calc-header {
@@ -60,12 +60,12 @@ body {
   font-size: 24px;
   letter-spacing: 0.3px;
   font-weight: 700;
-  color: var(--color-primary-dark);
+  color: var(--color-primary-light);
 }
 
 .subtitle {
   margin: 6px 0 0;
-  color: var(--color-primary-dark);
+  color: var(--color-primary-light);
   opacity: 0.65;
   font-size: 13.5px;
   line-height: 1.35;
@@ -73,11 +73,11 @@ body {
 
 .display {
   margin-top: 12px;
-  background: linear-gradient(90deg, #fff8f0 80%, #ffe0cc 100%);
-  border: 1px solid rgba(255, 153, 51, 0.10);
+  background: linear-gradient(90deg, #11131a 80%, #22263b 100%);
+  border: 1px solid rgba(0,0,0,0.18);
   border-radius: 12px;
   padding: 14px 12px 10px 12px;
-  box-shadow: 0 2px 8px rgba(255, 153, 51, 0.04);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
   transition: border-color 0.2s;
 }
 
@@ -86,8 +86,8 @@ body {
   font-size: 19px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1.5px solid rgba(255, 153, 51, 0.13);
-  background: rgba(255, 153, 51, 0.04);
+  border: 1.5px solid rgba(0,0,255,0.18);
+  background: rgba(0,0,0,0.10);
   color: var(--color-on-background);
   outline: none;
   transition: border-color 0.18s, box-shadow 0.18s;
@@ -95,7 +95,7 @@ body {
 
 .expression:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 4px rgba(255, 153, 51, 0.13);
+  box-shadow: 0 0 0 4px rgba(0,0,255,0.13);
 }
 
 .result {
@@ -103,7 +103,7 @@ body {
   min-height: 24px;
   font-size: 19px;
   font-weight: 650;
-  color: var(--color-primary-dark);
+  color: var(--color-primary-light);
   transition: color 0.2s;
 }
 
@@ -126,16 +126,16 @@ body {
 
 .btn {
   appearance: none;
-  border: 1.5px solid rgba(255, 153, 51, 0.13);
+  border: 1.5px solid rgba(0,0,255,0.13);
   background: var(--color-background);
-  color: var(--color-primary-dark);
+  color: var(--color-primary-light);
   border-radius: 12px;
   padding: 14px 0;
   font-size: 17px;
   font-family: inherit;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(255, 153, 51, 0.04);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   transition: transform 0.06s, background 0.14s, border-color 0.14s, color 0.14s, box-shadow 0.14s;
   outline: none;
   user-select: none;
@@ -146,51 +146,52 @@ body {
 .btn:hover, .btn:focus-visible {
   background: var(--color-primary-light);
   color: var(--color-on-primary);
-  border-color: var(--color-primary-dark);
-  box-shadow: 0 2px 8px rgba(255, 153, 51, 0.11);
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(0,0,255,0.11);
 }
 
 .btn:active {
   transform: translateY(1.5px) scale(0.98);
-  box-shadow: 0 1px 3px rgba(255, 153, 51, 0.06);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.13);
 }
 
 .btn-op {
-  border-color: var(--color-secondary);
-  color: var(--color-secondary);
-  background: rgba(255, 179, 102, 0.13);
+  border-color: var(--color-primary-light);
+  color: var(--color-primary-light);
+  background: rgba(51,102,255,0.13);
   font-weight: 600;
 }
 
 .btn-op:hover, .btn-op:focus-visible {
-  background: var(--color-secondary);
+  background: var(--color-primary-light);
   color: var(--color-on-primary);
-  border-color: var(--color-primary-dark);
+  border-color: var(--color-primary);
 }
 
 .btn-eq {
-  background: linear-gradient(90deg, #FFB366 0%, #FF9933 100%);
+  background: linear-gradient(90deg, #3366FF 0%, #0000FF 100%);
   color: var(--color-on-primary);
-  border-color: var(--color-primary-dark);
+  border-color: var(--color-primary);
   font-weight: 700;
 }
 
 .btn-eq:hover, .btn-eq:focus-visible {
-  background: var(--color-primary);
+  background: linear-gradient(90deg, #0000FF 0%, #3366FF 100%);
   color: var(--color-on-primary);
   border-color: var(--color-primary-dark);
 }
 
 .btn-fn {
-  background: rgba(255, 153, 51, 0.08);
-  color: var(--color-primary-dark);
+  background: rgba(0,0,0,0.13);
+  color: var(--color-primary-light);
   border-color: var(--color-primary-light);
+  font-weight: 600;
 }
 
 .btn-fn:hover, .btn-fn:focus-visible {
   background: var(--color-primary-light);
   color: var(--color-on-primary);
-  border-color: var(--color-primary-dark);
+  border-color: var(--color-primary);
 }
 
 .btn-wide {
@@ -199,9 +200,26 @@ body {
 
 .hint {
   margin-top: 18px;
-  color: var(--color-primary-dark);
-  opacity: 0.55;
-  font-size: 12.5px;
+  font-size: 13px;
+  color: var(--color-primary-light);
+  opacity: 0.65;
   text-align: center;
-  letter-spacing: 0.01em;
+}
+
+@media (max-width: 600px) {
+  .calculator {
+    width: 98vw;
+    padding: 12px 4px 8px 4px;
+  }
+  .display {
+    padding: 9px 5px 7px 5px;
+  }
+  .grid {
+    gap: 7px;
+  }
+  .btn {
+    font-size: 15px;
+    padding: 10px 0;
+    border-radius: 8px;
+  }
 }
