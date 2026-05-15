@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=161, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>SpecKit Calculator Web App</title>
+    <!-- Nunito 400, 700, 900 -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../src/styles/styles.css" />
+  </head>
+  <body>
+    <div class="calculator-container">
+      <main class="calculator-card" aria-label="Calculator" role="region">
+        <!-- Status Bar -->
+        <section class="status-bar" aria-hidden="true">
+          <div class="status-bar-time">9:41</div>
+          <div class="status-bar-icons">
+            <!-- Signal -->
+            <span class="icon icon-signal">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="10" width="2" height="4" rx="1" fill="#222"/>
+                <rect x="6" y="8" width="2" height="6" rx="1" fill="#222"/>
+                <rect x="10" y="6" width="2" height="8" rx="1" fill="#222"/>
+                <rect x="14" y="4" width="2" height="10" rx="1" fill="#222"/>
+              </svg>
+            </span>
+            <!-- WiFi -->
+            <span class="icon icon-wifi">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M4.99 10.99a7 7 0 0 1 9.89 0" stroke="#222" stroke-width="1.2" stroke-linecap="round"/>
+                <path d="M7.47 13.47a3.5 3.5 0 0 1 4.95 0" stroke="#222" stroke-width="1.2" stroke-linecap="round"/>
+                <circle cx="9" cy="14.2" r="1" fill="#222"/>
+              </svg>
+            </span>
+            <!-- Battery -->
+            <span class="icon icon-battery">
+              <svg width="22" height="12" viewBox="0 0 22 12" fill="none">
+                <rect x="1" y="2" width="18" height="8" rx="2" stroke="#222" stroke-width="1.2" fill="none"/>
+                <rect x="20" y="4.5" width="1.5" height="3" rx="0.75" fill="#222"/>
+                <rect x="3" y="4" width="14" height="4" rx="1" fill="#222"/>
+              </svg>
+            </span>
+          </div>
+        </section>
+        <!-- Display Area -->
+        <section class="display-area" aria-label="Calculator display">
+          <div class="expression" id="expression" aria-live="polite"></div>
+          <div class="result" id="result" aria-live="polite"></div>
+        </section>
+        <!-- Keypad Area -->
+        <section class="keypad-area" role="group" aria-label="Calculator keypad">
+          <!-- ROW 1 -->
+          <button class="keypad-btn btn-undo" aria-label="Undo" tabindex="0" id="undo-btn">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M7 8H2V3" stroke="#FCA3BF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M5.38 15.63C7.17 17.1 9.65 17.27 11.62 15.63C13.82 13.77 13.82 10.59 11.62 8.74C9.65 7.1 7.17 7.28 5.39 8.74" stroke="#FCA3BF" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="keypad-btn btn-func" aria-label="Percent" data-value="%" tabindex="0">%</button>
+          <button class="keypad-btn btn-func" aria-label="Multiply" data-value="×" tabindex="0">&times;</button>
+          <button class="keypad-btn btn-func" aria-label="Divide" data-value="÷" tabindex="0">&divide;</button>
+          <!-- ROW 2 -->
+          <button class="keypad-btn btn-num" aria-label="7" data-value="7" tabindex="0">7</button>
+          <button class="keypad-btn btn-num" aria-label="8" data-value="8" tabindex="0">8</button>
+          <button class="keypad-btn btn-num" aria-label="9" data-value="9" tabindex="0">9</button>
+          <button class="keypad-btn btn-func" aria-label="Subtract" data-value="−" tabindex="0">&minus;</button>
+          <!-- ROW 3 -->
+          <button class="keypad-btn btn-num" aria-label="4" data-value="4" tabindex="0">4</button>
+          <button class="keypad-btn btn-num" aria-label="5" data-value="5" tabindex="0">5</button>
+          <button class="keypad-btn btn-num" aria-label="6" data-value="6" tabindex="0">6</button>
+          <button class="keypad-btn btn-func" aria-label="Add" data-value="+" tabindex="0">+</button>
+          <!-- ROW 4 -->
+          <button class="keypad-btn btn-num" aria-label="1" data-value="1" tabindex="0">1</button>
+          <button class="keypad-btn btn-num" aria-label="2" data-value="2" tabindex="0">2</button>
+          <button class="keypad-btn btn-num" aria-label="3" data-value="3" tabindex="0">3</button>
+          <!-- Tall = (spans rows 4 and 5) -->
+          <button class="keypad-btn btn-equals" aria-label="Equals" id="equals-btn" tabindex="0">=</button>
+          <!-- ROW 5 -->
+          <button class="keypad-btn btn-ac" aria-label="All Clear" id="ac-btn" tabindex="0">AC</button>
+          <button class="keypad-btn btn-num" aria-label="0" data-value="0" tabindex="0">0</button>
+          <button class="keypad-btn btn-num" aria-label="Decimal" data-value="." tabindex="0">.</button>
+          <!-- no = here, as the tall = above spans this cell by CSS -->
+        </section>
+      </main>
+    </div>
+    <script src="../src/app.js"></script>
+  </body>
+</html>

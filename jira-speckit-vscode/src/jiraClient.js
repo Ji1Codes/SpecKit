@@ -33,7 +33,7 @@ class JiraClient {
         this._assertConfigured();
         const jql  = encodeURIComponent(`project = "${this._project()}" AND statusCategory != Done ORDER BY created DESC`);
         const resp = await fetch(
-            `${this._base()}/rest/api/3/search/jql?jql=${jql}&maxResults=50&fields=summary,description,status`,
+            `${this._base()}/rest/api/3/search/jql?jql=${jql}&maxResults=50&fields=summary,description,status,attachment`,
             { headers: this._headers(), signal: AbortSignal.timeout(15000) }
         );
         if (!resp.ok) throw new Error(`Jira returned ${resp.status} — check your email and API token in settings.`);
@@ -64,6 +64,31 @@ class JiraClient {
             body:    JSON.stringify(body),
             signal:  AbortSignal.timeout(15000),
         });
+    }
+
+    /**
+     * Download image attachments from a Jira issue.
+     * @param {Array} attachments - issue.fields.attachment array from Jira
+     * @returns {Promise<Array<{filename, mimeType, base64}>>}
+     */
+    async downloadAttachments(attachments) {
+        if (!attachments || !attachments.length) return [];
+        const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+        const images = attachments.filter(a => IMAGE_TYPES.includes((a.mimeType || '').toLowerCase()));
+        const results = [];
+        for (const img of images.slice(0, 5)) { // max 5 images per ticket
+            try {
+                const resp = await fetch(img.content, {
+                    headers: this._headers(),
+                    signal:  AbortSignal.timeout(30000),
+                });
+                if (!resp.ok) continue;
+                const buffer = await resp.arrayBuffer();
+                const base64 = Buffer.from(buffer).toString('base64');
+                results.push({ filename: img.filename, mimeType: img.mimeType, base64 });
+            } catch { /* skip undownloadable attachments */ }
+        }
+        return results;
     }
 
     async transitionToDone(ticketId) {

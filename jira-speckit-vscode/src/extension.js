@@ -126,27 +126,58 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                                 : JSON.stringify(fields.description))
                             : '';
 
+                        // Download any image attachments from Jira
+                        const images = await jira.downloadAttachments(fields.attachment || []);
+                        if (images.length) {
+                            statusBarItem.text = `$(sync~spin) SpecKit: analysing ${images.length} image(s) for ${tid}…`;
+                        }
+
                         const result = await pipeline.resolve(
-                            tid, fields.summary || '', descText, workspaceCtx
+                            tid, fields.summary || '', descText, workspaceCtx, images
                         );
 
                         await jira.postComment(tid, result.comment);
                         await jira.transitionToDone(tid);
 
+                        // Write AI-generated files to the workspace
+                        const writtenFiles = [];
+                        if (result.generatedFiles && result.generatedFiles.length) {
+                            const wsRoot = vscode.workspace.workspaceFolders
+                                ? vscode.workspace.workspaceFolders[0].uri.fsPath
+                                : null;
+                            if (wsRoot) {
+                                for (const gf of result.generatedFiles) {
+                                    try {
+                                        const absPath = path.join(wsRoot, gf.path);
+                                        const dir     = path.dirname(absPath);
+                                        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                                        fs.writeFileSync(absPath, gf.content, 'utf8');
+                                        writtenFiles.push(gf.path);
+                                    } catch (writeErr) {
+                                        vscode.window.showWarningMessage(`SpecKit: could not write ${gf.path}: ${writeErr.message}`);
+                                    }
+                                }
+                            }
+                        }
+
                         const entry = {
-                            key:           tid,
-                            summary:       fields.summary || '',
-                            files_changed: result.filesChanged,
-                            spec:          result.spec,
-                            plan:          result.plan,
-                            tasks:         result.tasks,
-                            solution:      result.solution,
-                            resolved_at:   new Date().toISOString(),
+                            key:             tid,
+                            summary:         fields.summary || '',
+                            files_changed:   writtenFiles.length ? writtenFiles : result.filesChanged,
+                            images_analysed: result.imagesAnalysed || [],
+                            spec:            result.spec,
+                            plan:            result.plan,
+                            tasks:           result.tasks,
+                            solution:        result.solution,
+                            resolved_at:     new Date().toISOString(),
                         };
                         saveHistory([entry, ...resolvedHistory].slice(0, 50));
                         resolvedProvider.refresh();
                         openProvider.refresh();
-                        vscode.window.showInformationMessage(`SpecKit resolved ${tid}: ${fields.summary}`);
+                        const fileMsg = writtenFiles.length
+                            ? ` — wrote ${writtenFiles.length} file(s): ${writtenFiles.join(', ')}`
+                            : '';
+                        vscode.window.showInformationMessage(`SpecKit resolved ${tid}: ${fields.summary}${fileMsg}`);
                     } catch (err) {
                         vscode.window.showErrorMessage(`SpecKit failed on ${tid}: ${err.message}`);
                     } finally {

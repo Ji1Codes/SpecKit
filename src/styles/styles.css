@@ -1,0 +1,307 @@
+/* Base colors */
+:root {
+  --gray-bg: #f6f6f6;
+  --gray-btn: #fafafb;
+  --gray-btn-hover: #f1f2f4;
+  --gray-btn-active: #e4e5ea;
+  --expression-gray: #8c96a0;
+  --result-black: #222222;
+  --btn-ac: #ff2678;
+  --btn-equals-grad-top: #ff2678;
+  --btn-equals-grad-bottom: #ff7426;
+  --icon-undo: #fca3bf;
+  --shadow-card: 0px 2px 10px rgba(187,187,187,0.1);
+  --equals-shadow: 0 4px 12px rgba(255, 116, 38, 0.24);
+  --radius-card: 24px;
+  --radius-btn: 50%;
+  --radius-equals: 16px;
+}
+
+/* Nunito font: base and weights */
+body,
+html {
+  font-family: 'Nunito', 'Helvetica Neue', Arial, sans-serif;
+  background: var(--gray-bg);
+  min-height: 100vh;
+  height: 100vh;
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior-y: contain;
+}
+
+/* Center the calculator */
+.calculator-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+/* Calculator Card */
+.calculator-card {
+  width: 161px;
+  height: 336px;
+  background: #fff;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.status-bar {
+  width: 100%;
+  height: 24px;
+  background: #fff;
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding-top: 10px;
+  z-index: 2;
+}
+
+.status-bar-time {
+  flex: 1 1 auto;
+  text-align: center;
+  font-family: 'Nunito', 'SF Pro', Arial, sans-serif;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #111;
+  letter-spacing: 0.02em;
+}
+
+.status-bar-icons {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  display: flex;
+  gap: 4px;
+  height: 14px;
+}
+
+.status-bar .icon {
+  display: inline-flex;
+  padding-left: 1px;
+  vertical-align: middle;
+}
+
+.display-area {
+  background: #fff;
+  padding: 8px 14px 0 16px;
+  min-height: 65px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  /* Expression sits at top, result next, both right aligned */
+  box-sizing: border-box;
+}
+
+/* Expression (math expression) */
+.expression {
+  color: var(--expression-gray);
+  font-size: 13.5px;
+  line-height: 22px;
+  font-weight: 300;
+  font-family: 'Nunito', Arial, sans-serif;
+  text-align: right;
+  margin-top: 8px;
+  width: 100%;
+  min-height: 21px;
+  margin-bottom: 0;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.result {
+  color: var(--result-black);
+  font-size: 28px;
+  font-weight: 800;
+  font-family: 'Nunito', Arial, sans-serif;
+  text-align: right;
+  margin: 2px 0 12px 0;
+  width: 100%;
+  min-height: 30px;
+  letter-spacing: -1px;
+  white-space: nowrap;
+}
+
+.keypad-area {
+  background: #fff;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 12px 11px;
+  padding: 14px 12px;
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+  min-height: 196px;
+  box-sizing: border-box;
+}
+
+/* Keypad Buttons */
+.keypad-btn {
+  width: 32px;
+  height: 32px;
+  background: var(--gray-btn);
+  border: none;
+  border-radius: 50%;
+  color: var(--result-black);
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'Nunito', Arial, sans-serif;
+  box-shadow: none;
+  cursor: pointer;
+  outline: none;
+  transition: 
+    background 0.14s, 
+    box-shadow 0.12s, 
+    color 0.18s;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+}
+
+/* Undo button special style */
+.keypad-btn.btn-undo {
+  padding: 0;
+  background: var(--gray-btn);
+}
+.keypad-btn.btn-undo svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Function buttons (% × ÷ - +) */
+.keypad-btn.btn-func {
+  color: #a8acb4;
+  font-weight: 700;
+}
+
+/* All Clear (AC) */
+.keypad-btn.btn-ac {
+  color: var(--btn-ac);
+  font-weight: 800;
+  font-size: 15.6px;
+  letter-spacing: -0.5px;
+}
+
+/* Equals button: vertical pill, gradient, special shadow */
+.keypad-btn.btn-equals {
+  grid-row: 4 / span 2;
+  grid-column: 4;
+  width: 32px;
+  height: 72px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--btn-equals-grad-top) 0%, var(--btn-equals-grad-bottom) 100%);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 900;
+  align-self: center;
+  justify-self: center;
+  box-shadow: var(--equals-shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  outline: none;
+}
+
+/* Remove duplicate cell for grid */
+.keypad-area .keypad-btn:nth-child(20) {
+  grid-row: 4 / span 2;
+  grid-column: 4;
+}
+
+/* Visible focus ring for accessibility: blue outline */
+.keypad-btn:focus-visible {
+  outline: 2.5px solid #ffb640;
+  outline-offset: 2px;
+  z-index: 4;
+}
+
+/* Hover and active states for all buttons */
+.keypad-btn:not(.btn-equals):hover,
+.keypad-btn:not(.btn-equals):focus {
+  background: var(--gray-btn-hover);
+}
+
+.keypad-btn:not(.btn-equals):active,
+.keypad-btn:active {
+  background: var(--gray-btn-active);
+}
+
+.keypad-btn.btn-equals:active {
+  filter: brightness(0.94);
+  box-shadow: 0 6px 18px rgba(255, 116, 38, 0.32);
+}
+
+/* Minimize button outline for AC/equal */
+.keypad-btn.btn-ac:focus-visible,
+.keypad-btn.btn-equals:focus-visible {
+  outline: 2px solid #ff2678;
+}
+
+.keypad-btn:disabled {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+@media (max-width: 350px) {
+  .calculator-container {
+    min-width: 100vw;
+    padding: 0;
+  }
+  .calculator-card {
+    width: 100vw;
+    max-width: 161px;
+    min-width: 140px;
+  }
+}
+
+/* Hide scrollbar for long expressions */
+.expression::-webkit-scrollbar {
+  display: none;
+}
+
+/* Show focus style for keyboard/Tab navigation */
+.keypad-btn:focus-visible {
+  box-shadow: 0 0 0 2px #ffc66b55;
+}
+
+/* Remove tap highlight on mobile */
+.keypad-btn, .calculator-card, .display-area {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Utility: make button's label vertically centered even for "=" */
+.keypad-btn.btn-equals span {
+  margin-top: 1px;
+}
+
+/* Hide number input spinners on mobile iOS */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
