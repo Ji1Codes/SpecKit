@@ -2,7 +2,7 @@
   "name": "jira-speckit",
   "displayName": "Jira SpecKit",
   "description": "Auto-resolve Jira tickets using the SpecKit AI pipeline — view open tickets, resolutions, files changed, and trigger resolution from VS Code.",
-  "version": "0.2.3",
+  "version": "1.0.1",
   "publisher": "jivan",
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
@@ -14,21 +14,109 @@
     "configuration": {
       "title": "Jira SpecKit",
       "properties": {
-        "jiraSpeckit.serverUrl": {
-          "type": "string",
-          "default": "http://localhost:8000",
-          "description": "URL of the running SpecKit FastAPI server."
-        },
         "jiraSpeckit.jiraBaseUrl": {
           "type": "string",
           "default": "",
-          "description": "Jira base URL used to open tickets in the browser (e.g. https://your-org.atlassian.net)."
+          "description": "Jira base URL (e.g. https://your-org.atlassian.net). Used to open tickets in the browser."
+        },
+        "jiraSpeckit.jiraEmail": {
+          "type": "string",
+          "default": "",
+          "description": "Jira account email address."
+        },
+        "jiraSpeckit.jiraApiToken": {
+          "type": "string",
+          "default": "",
+          "description": "Jira API token. Generate one at id.atlassian.net/manage-profile/security/api-tokens."
+        },
+        "jiraSpeckit.jiraProjectKey": {
+          "type": "string",
+          "default": "",
+          "description": "Jira project key (e.g. PM, ABC). Only tickets from this project are fetched."
+        },
+        "jiraSpeckit.aiProvider": {
+          "type": "string",
+          "default": "azure-openai",
+          "enum": ["azure-openai", "openai", "anthropic", "google", "custom"],
+          "enumDescriptions": [
+            "Azure OpenAI (GPT-4o, GPT-4.1, etc.)",
+            "OpenAI (GPT-4o, o1, etc.)",
+            "Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.)",
+            "Google Gemini (gemini-2.0-flash, gemini-2.5-pro, etc.)",
+            "Custom / Company API (OpenAI-compatible endpoint — Ollama, vLLM, LM Studio, etc.)"
+          ],
+          "description": "Which AI provider to use for ticket resolution."
+        },
+        "jiraSpeckit.azureOpenAiEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "[azure-openai] Azure OpenAI endpoint URL (e.g. https://your-resource.openai.azure.com/)."
+        },
+        "jiraSpeckit.azureOpenAiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "[azure-openai] Azure OpenAI API key."
+        },
+        "jiraSpeckit.azureOpenAiDeployment": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "[azure-openai] Azure OpenAI deployment name (e.g. gpt-4o, gpt-4.1)."
+        },
+        "jiraSpeckit.azureOpenAiApiVersion": {
+          "type": "string",
+          "default": "2024-12-01-preview",
+          "description": "[azure-openai] Azure OpenAI API version."
+        },
+        "jiraSpeckit.openAiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "[openai] OpenAI API key."
+        },
+        "jiraSpeckit.openAiModel": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "[openai] OpenAI model name (e.g. gpt-4o, o3)."
+        },
+        "jiraSpeckit.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "[anthropic] Anthropic API key for Claude models."
+        },
+        "jiraSpeckit.anthropicModel": {
+          "type": "string",
+          "default": "claude-opus-4-5",
+          "description": "[anthropic] Claude model name (e.g. claude-opus-4-5, claude-sonnet-4-5)."
+        },
+        "jiraSpeckit.googleApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "[google] Google AI Studio API key for Gemini models."
+        },
+        "jiraSpeckit.googleModel": {
+          "type": "string",
+          "default": "gemini-2.0-flash",
+          "description": "[google] Gemini model name (e.g. gemini-2.0-flash, gemini-2.5-pro)."
+        },
+        "jiraSpeckit.customApiEndpoint": {
+          "type": "string",
+          "default": "",
+          "description": "[custom] OpenAI-compatible API base URL. E.g. http://localhost:11434/v1 for Ollama, or your company's internal LLM endpoint."
+        },
+        "jiraSpeckit.customApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "[custom] API key for your custom endpoint (leave blank if not required)."
+        },
+        "jiraSpeckit.customApiModel": {
+          "type": "string",
+          "default": "",
+          "description": "[custom] Model name to pass to your custom endpoint (leave blank if the endpoint has a default)."
         },
         "jiraSpeckit.autoRefreshSeconds": {
           "type": "number",
           "default": 30,
           "minimum": 10,
-          "description": "How often (in seconds) to refresh the ticket lists automatically."
+          "description": "How often (in seconds) to refresh ticket lists and run the auto-resolver."
         }
       }
     },
@@ -78,6 +166,11 @@
         "command": "jiraSpeckit.copyTicketKey",
         "title": "Copy Ticket Key",
         "icon": "$(copy)"
+      },
+      {
+        "command": "jiraSpeckit.openSettings",
+        "title": "Configure Jira SpecKit",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -91,6 +184,11 @@
           "command": "jiraSpeckit.resolveAll",
           "when": "view == jiraSpeckit.openTickets",
           "group": "navigation@1"
+        },
+        {
+          "command": "jiraSpeckit.openSettings",
+          "when": "view == jiraSpeckit.openTickets || view == jiraSpeckit.resolvedTickets",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

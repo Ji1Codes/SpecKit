@@ -82,24 +82,29 @@ class LoadingItem extends vscode.TreeItem {
 }
 
 class ErrorItem extends vscode.TreeItem {
-    constructor(serverUrl) {
-        super('Cannot reach server', vscode.TreeItemCollapsibleState.None);
-        this.description  = serverUrl;
+    constructor(message) {
+        super('Error loading tickets', vscode.TreeItemCollapsibleState.None);
+        this.description  = message || 'Check Settings';
         this.iconPath     = new vscode.ThemeIcon('plug', new vscode.ThemeColor('testing.iconFailed'));
         this.tooltip      = new vscode.MarkdownString(
-            `**Server offline**\n\nMake sure the FastAPI server is running:\n\`\`\`\nuvicorn app:app --reload\n\`\`\`\n\nExpected at: \`${serverUrl}\``
+            `**Could not load tickets**\n\n${message}\n\nOpen Settings and configure your Jira credentials.`
         );
         this.contextValue = 'error';
+        this.command = {
+            command: 'jiraSpeckit.openSettings',
+            title:   'Open Settings',
+        };
     }
 }
 
 // ─── TicketProvider ───────────────────────────────────────────────────────────
+// getData: async function() → raw Jira issues[] (open) or resolved ticket objects[] (resolved)
 
 class TicketProvider {
-    constructor(mode, getConfig) {
-        this.mode      = mode;
-        this.getConfig = getConfig;
-        this._items    = [new LoadingItem()];
+    constructor(mode, getData) {
+        this.mode    = mode;
+        this.getData = getData;
+        this._items  = [new LoadingItem()];
         this._loadCallbacks = [];
 
         this._onDidChangeTreeData = new vscode.EventEmitter();
@@ -115,36 +120,33 @@ class TicketProvider {
     }
 
     async _fetch() {
-        const cfg       = this.getConfig();
-        const serverUrl = (cfg.get('serverUrl') || 'http://localhost:8000').replace(/\/$/, '');
-        const endpoint  = this.mode === 'open'
-            ? `${serverUrl}/api/jira/open`
-            : `${serverUrl}/api/jira/resolved`;
-
         try {
-            const res  = await fetch(endpoint, { signal: AbortSignal.timeout(10_000) });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
+            const data = await this.getData();
 
             if (this.mode === 'open') {
-                const issues = data.issues ?? [];
+                // data is raw Jira issues with .fields.*
+                const issues = Array.isArray(data) ? data : [];
                 this._items  = issues.length
-                    ? issues.map(i => new TicketItem({
-                        key:         i.key,
-                        summary:     i.summary     ?? '',
-                        status:      i.status      ?? '',
-                        description: i.description ?? '',
-                    }, 'open'))
-                    : [new EmptyItem('No open tickets', '🎉 All clear!')];
+                    ? issues.map(i => {
+                        const f = i.fields || {};
+                        return new TicketItem({
+                            key:         i.key,
+                            summary:     f.summary || '',
+                            status:      f.status?.name || '',
+                            description: f.description || '',
+                        }, 'open');
+                    })
+                    : [new EmptyItem('No open tickets', 'All clear!')];
                 this._loadCallbacks.forEach(cb => cb(issues.length, false));
             } else {
-                const tickets = data.tickets ?? [];
+                // data is resolved ticket objects {key, summary, files_changed, ...}
+                const tickets = Array.isArray(data) ? data : [];
                 this._items   = tickets.length
                     ? tickets.map(t => new TicketItem(t, 'resolved'))
                     : [new EmptyItem('No resolved tickets yet', 'They will appear here automatically')];
             }
-        } catch {
-            this._items = [new ErrorItem(serverUrl)];
+        } catch (err) {
+            this._items = [new ErrorItem(err.message || String(err))];
             this._loadCallbacks.forEach(cb => cb(0, true));
         } finally {
             this._onDidChangeTreeData.fire(undefined);

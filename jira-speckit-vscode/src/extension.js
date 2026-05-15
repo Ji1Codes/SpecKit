@@ -2,57 +2,162 @@
 'use strict';
 
 const vscode = require('vscode');
-const { TicketProvider } = require('./ticketProvider');
-const { DetailPanel } = require('./detailPanel');
+const fs     = require('fs');
+const path   = require('path');
+const { TicketProvider }      = require('./ticketProvider');
+const { DetailPanel }         = require('./detailPanel');
+const { JiraClient }          = require('./jiraClient');
+const { AIPipeline }          = require('./aiPipeline');
+const { getWorkspaceContext } = require('./workspaceScanner');
 
-/** @type {vscode.StatusBarItem} */
+/**
+ * One-time migration: import resolved_history.json (written by the old FastAPI
+ * server) into VS Code globalState so legacy tickets keep their spec/plan/tasks.
+ */
+function migrateFromLegacyJson(context) {
+    if (context.globalState.get('legacyMigrated')) return;
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || !folders.length) return;
+    const jsonPath = path.join(folders[0].uri.fsPath, 'resolved_history.json');
+    if (!fs.existsSync(jsonPath)) return;
+    try {
+        const legacy = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        if (!Array.isArray(legacy) || !legacy.length) return;
+        const existing = context.globalState.get('resolvedHistory', []);
+        const merged   = Object.values(
+            Object.fromEntries([...legacy, ...existing].map(t => [t.key, t]))
+        );
+        context.globalState.update('resolvedHistory', merged);
+        context.globalState.update('legacyMigrated', true);
+    } catch { /* corrupt file — skip silently */ }
+}
+
 let statusBarItem;
-/** @type {ReturnType<typeof setInterval>} */
 let refreshTimer;
+let pollTimer;
 
 // ─── Activate ────────────────────────────────────────────────────────────────
 
 function activate(/** @type {vscode.ExtensionContext} */ context) {
     const cfg = () => vscode.workspace.getConfiguration('jiraSpeckit');
 
+    // ── Core clients ────────────────────────────────────────────────────────
+    const jira     = new JiraClient(cfg);
+    const pipeline = new AIPipeline(cfg);
+    const inFlight = new Set(); // ticket keys currently being resolved
+
+    // Persist resolved history across VS Code sessions
+    migrateFromLegacyJson(context);
+    let resolvedHistory = context.globalState.get('resolvedHistory', []);
+    const saveHistory = (history) => {
+        resolvedHistory = history;
+        context.globalState.update('resolvedHistory', history);
+    };
+
     // ── Tree providers ──────────────────────────────────────────────────────
-    const openProvider     = new TicketProvider('open',     cfg);
-    const resolvedProvider = new TicketProvider('resolved', cfg);
+    const openProvider = new TicketProvider('open', () => jira.fetchOpenTickets());
+
+    const resolvedProvider = new TicketProvider('resolved', async () => {
+        // Merge persisted poller history (rich) with Jira Done tickets (basic)
+        const combined = Object.fromEntries(resolvedHistory.map(t => [t.key, t]));
+        try {
+            const doneIssues = await jira.fetchDoneTickets();
+            for (const issue of doneIssues) {
+                if (!combined[issue.key]) {
+                    const f = issue.fields || {};
+                    combined[issue.key] = {
+                        key:           issue.key,
+                        summary:       f.summary || '',
+                        files_changed: [],
+                        spec: '', plan: '', tasks: '', solution: '',
+                        resolved_at:   f.resolutiondate || f.updated || '',
+                        source:        'jira',
+                    };
+                }
+            }
+        } catch { /* show what we have if Jira call fails */ }
+        return Object.values(combined);
+    });
 
     const openView = vscode.window.createTreeView('jiraSpeckit.openTickets', {
-        treeDataProvider: openProvider,
-        showCollapseAll: false,
+        treeDataProvider: openProvider, showCollapseAll: false,
     });
     const resolvedView = vscode.window.createTreeView('jiraSpeckit.resolvedTickets', {
-        treeDataProvider: resolvedProvider,
-        showCollapseAll: false,
+        treeDataProvider: resolvedProvider, showCollapseAll: false,
     });
-
     context.subscriptions.push(openView, resolvedView);
 
     // ── Status bar ──────────────────────────────────────────────────────────
-    statusBarItem = vscode.window.createStatusBarItem(
-        vscode.StatusBarAlignment.Left, 100
-    );
-    statusBarItem.command  = 'jiraSpeckit.refresh';
-    statusBarItem.tooltip  = 'Jira SpecKit — click to refresh';
-    statusBarItem.text     = '$(bug) SpecKit: loading…';
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem.command = 'jiraSpeckit.refresh';
+    statusBarItem.tooltip = 'Jira SpecKit — click to refresh';
+    statusBarItem.text    = '$(bug) SpecKit: loading…';
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
 
-    // Sync status bar text whenever open tickets change
     openProvider.onDidLoad((count, error) => {
         if (error) {
-            statusBarItem.text         = '$(error) SpecKit: server offline';
+            statusBarItem.text            = '$(error) SpecKit: check settings';
             statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         } else {
-            statusBarItem.text         = `$(bug) SpecKit: ${count} open`;
+            statusBarItem.text            = `$(bug) SpecKit: ${count} open`;
             statusBarItem.backgroundColor = undefined;
         }
     });
 
-    // ── Commands ────────────────────────────────────────────────────────────
+    // ── Built-in poller (no Python server needed) ───────────────────────────
+    async function runPoller() {
+        if (!cfg().get('jiraProjectKey') || !cfg().get('jiraEmail') || !cfg().get('jiraApiToken')) return;
+        try {
+            const issues = await jira.fetchOpenTickets();
+            for (const issue of issues) {
+                const tid = issue.key;
+                if (inFlight.has(tid)) continue;
+                inFlight.add(tid);
 
+                (async () => {
+                    try {
+                        statusBarItem.text = `$(sync~spin) SpecKit: resolving ${tid}…`;
+                        const fields       = issue.fields || {};
+                        const workspaceCtx = await getWorkspaceContext();
+                        const descText     = fields.description
+                            ? (typeof fields.description === 'string'
+                                ? fields.description
+                                : JSON.stringify(fields.description))
+                            : '';
+
+                        const result = await pipeline.resolve(
+                            tid, fields.summary || '', descText, workspaceCtx
+                        );
+
+                        await jira.postComment(tid, result.comment);
+                        await jira.transitionToDone(tid);
+
+                        const entry = {
+                            key:           tid,
+                            summary:       fields.summary || '',
+                            files_changed: result.filesChanged,
+                            spec:          result.spec,
+                            plan:          result.plan,
+                            tasks:         result.tasks,
+                            solution:      result.solution,
+                            resolved_at:   new Date().toISOString(),
+                        };
+                        saveHistory([entry, ...resolvedHistory].slice(0, 50));
+                        resolvedProvider.refresh();
+                        openProvider.refresh();
+                        vscode.window.showInformationMessage(`SpecKit resolved ${tid}: ${fields.summary}`);
+                    } catch (err) {
+                        vscode.window.showErrorMessage(`SpecKit failed on ${tid}: ${err.message}`);
+                    } finally {
+                        inFlight.delete(tid);
+                    }
+                })();
+            }
+        } catch { /* silent poll failure — bad config, network issue, etc. */ }
+    }
+
+    // ── Commands ────────────────────────────────────────────────────────────
     context.subscriptions.push(
 
         vscode.commands.registerCommand('jiraSpeckit.refresh', () => {
@@ -61,31 +166,12 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.resolveAll', async () => {
-            const serverUrl = cfg().get('serverUrl');
             const yes = await vscode.window.showWarningMessage(
                 'Trigger SpecKit to resolve ALL open Jira tickets now?',
                 { modal: true }, 'Yes, resolve all'
             );
             if (!yes) return;
-
-            statusBarItem.text = '$(sync~spin) SpecKit: resolving…';
-            try {
-                const res  = await fetch(`${serverUrl}/api/jira/resolve`, { method: 'POST' });
-                const data = await res.json();
-                vscode.window.showInformationMessage(
-                    `SpecKit: triggered resolution — ${data.resolved ?? 0} resolved, ${data.errors ?? 0} errors.`
-                );
-            } catch {
-                vscode.window.showErrorMessage(
-                    `SpecKit: cannot reach server at ${serverUrl}. Is it running?`
-                );
-            } finally {
-                // Brief pause then refresh so resolved tickets appear
-                setTimeout(() => {
-                    openProvider.refresh();
-                    resolvedProvider.refresh();
-                }, 3000);
-            }
+            await runPoller();
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.openInBrowser', async (item) => {
@@ -93,7 +179,7 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
             let base = cfg().get('jiraBaseUrl') || '';
             if (!base) {
                 base = await vscode.window.showInputBox({
-                    prompt:      'Enter your Jira base URL',
+                    prompt: 'Enter your Jira base URL',
                     placeHolder: 'https://your-org.atlassian.net',
                     ignoreFocusOut: true,
                 });
@@ -102,8 +188,7 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                     'jiraBaseUrl', base, vscode.ConfigurationTarget.Global
                 );
             }
-            const url = `${base.replace(/\/$/, '')}/browse/${item.key}`;
-            vscode.env.openExternal(vscode.Uri.parse(url));
+            vscode.env.openExternal(vscode.Uri.parse(`${base.replace(/\/$/, '')}/browse/${item.key}`));
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.viewResolution', (item) => {
@@ -117,30 +202,45 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
             vscode.window.showInformationMessage(`Copied: ${item.key}`);
         }),
 
+        vscode.commands.registerCommand('jiraSpeckit.openSettings', () => {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'jiraSpeckit');
+        }),
+
     );
 
-    // ── Auto-refresh timer ──────────────────────────────────────────────────
-    function startTimer() {
+    // ── Timers ───────────────────────────────────────────────────────────────
+    function startTimers() {
         clearInterval(refreshTimer);
+        clearInterval(pollTimer);
         const secs = Math.max(10, cfg().get('autoRefreshSeconds') ?? 30);
         refreshTimer = setInterval(() => {
             openProvider.refresh();
             resolvedProvider.refresh();
         }, secs * 1000);
+        pollTimer = setInterval(runPoller, secs * 1000);
     }
 
-    startTimer();
-
-    // Restart timer if config changes
+    startTimers();
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('jiraSpeckit')) startTimer();
+            if (e.affectsConfiguration('jiraSpeckit')) startTimers();
         })
     );
+    context.subscriptions.push({ dispose: () => { clearInterval(refreshTimer); clearInterval(pollTimer); } });
 
-    context.subscriptions.push({ dispose: () => clearInterval(refreshTimer) });
+    // ── First-run prompt if not configured ──────────────────────────────────
+    const configured = cfg().get('jiraProjectKey') && cfg().get('jiraEmail') && cfg().get('jiraApiToken');
+    if (!configured) {
+        vscode.window.showInformationMessage(
+            'Jira SpecKit: Add your Jira credentials in Settings to get started.',
+            'Open Settings'
+        ).then(action => {
+            if (action === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'jiraSpeckit');
+            }
+        });
+    }
 
-    // ── Initial load ────────────────────────────────────────────────────────
     openProvider.refresh();
     resolvedProvider.refresh();
 }
@@ -149,6 +249,8 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
 
 function deactivate() {
     clearInterval(refreshTimer);
+    clearInterval(pollTimer);
 }
 
 module.exports = { activate, deactivate };
+
