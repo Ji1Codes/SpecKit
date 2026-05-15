@@ -1,69 +1,94 @@
-# Jira SpecKit — VS Code Extension
+# Jira SpecKit
 
-Visualise and trigger the SpecKit Jira auto-resolver from inside VS Code.
+**Automatically resolve Jira tickets using AI — right from VS Code.**
 
-## Features
+Jira SpecKit connects to your team's Jira project and uses the SpecKit AI pipeline to watch for open tickets, generate a full Spec → Plan → Tasks → Implementation, post the resolution back to Jira, and mark the ticket as Done — all automatically.
 
-| Feature | Details |
-|---|---|
-| **Open Tickets** sidebar | Live list of all open Jira tickets from your project |
-| **Resolved This Session** sidebar | Every ticket auto-resolved by the poller, with files changed |
-| **Resolution Detail Panel** | Click any resolved ticket to see Spec → Plan → Tasks → Implementation |
-| **Status bar badge** | Shows open ticket count at a glance; red when server is offline |
-| **Resolve All** button | Trigger the full pipeline manually from the toolbar |
-| **Open in Jira** | Jump to any ticket in your browser |
-| **Auto-refresh** | Both lists refresh every 30 s (configurable) |
+---
 
-## Requirements
+## What you'll need before you start
 
-The FastAPI server (`app.py`) must be running:
+Before installing this extension, make sure the following are in place:
 
-```bash
-cd d:\SpecKit
+### 1. Python 3.11 or newer
+Download from [python.org](https://www.python.org/downloads/) if you don't have it.  
+Verify in a terminal: `python --version`
+
+### 2. The SpecKit backend server
+This extension is a frontend for the **SpecKit FastAPI server**. You need that server running on your machine for the extension to work.
+
+If your team has already set it up, ask them for the server URL (default: `http://localhost:8000`).
+
+To run it yourself:
+```
+cd <path-to-SpecKit>
 .venv\Scripts\uvicorn app:app --reload
 ```
+Keep this terminal open while using the extension.
 
-## Settings
+### 3. A Jira account with API access
+You need access to a Jira project and the server must be configured with:
+- Your Jira URL (e.g. `https://your-team.atlassian.net`)
+- A Jira email and API token (set in the server's `.env` file)
 
-| Setting | Default | Description |
+> If you're not sure whether the server is configured, ask your team admin.
+
+---
+
+## Installation
+
+1. Install this extension from the VS Code Marketplace (search **Jira SpecKit**)
+2. Make sure the SpecKit backend server is running (see above)
+3. Reload VS Code (`Ctrl+Shift+P` → **Developer: Reload Window**)
+4. Click the **Jira SpecKit** icon in the left Activity Bar — you'll see your tickets appear automatically
+
+---
+
+## What you'll see
+
+| Panel | What it shows |
+|---|---|
+| **Open Tickets** | All currently open tickets in your Jira project |
+| **Resolved This Session** | Tickets auto-resolved by SpecKit AI, with files changed |
+| **Resolution Detail Panel** | Click any resolved ticket → see the full Spec, Plan, Tasks, and Implementation |
+| **Status bar** (bottom of VS Code) | Live count of open tickets; turns red if the server is offline |
+
+Both panels refresh every 30 seconds automatically.
+
+---
+
+## Extension settings
+
+Open VS Code Settings (`Ctrl+,`) and search **Jira SpecKit** to configure:
+
+| Setting | Default | What it does |
 |---|---|---|
-| `jiraSpeckit.serverUrl` | `http://localhost:8000` | URL of the SpecKit FastAPI server |
-| `jiraSpeckit.jiraBaseUrl` | *(empty)* | Jira instance URL for opening tickets in browser |
-| `jiraSpeckit.autoRefreshSeconds` | `30` | How often to auto-refresh (minimum 10) |
+| `jiraSpeckit.serverUrl` | `http://localhost:8000` | Where your SpecKit backend server is running |
+| `jiraSpeckit.jiraBaseUrl` | *(empty)* | Your Jira URL — enables the "Open in Jira" button |
+| `jiraSpeckit.autoRefreshSeconds` | `30` | How often to refresh the ticket lists (minimum 10 s) |
 
-## Running / Debugging
+---
 
-1. Open `jira-speckit-vscode/` as a workspace in VS Code  
-   (`File → Open Folder → d:\SpecKit\jira-speckit-vscode`)
-2. Press **F5** — an Extension Development Host window opens with the extension active
-3. Look for the **Jira SpecKit** icon in the Activity Bar (left sidebar)
+## Toolbar buttons
 
-## Packaging as a `.vsix`
+Inside the Jira SpecKit panel you'll find:
 
-```bash
-# Install the packaging tool once
-npm install -g @vscode/vsce
+- **▶ Resolve All** — Manually trigger the AI pipeline on all open tickets right now
+- **⟳ Refresh** — Reload both ticket lists immediately
 
-# From inside jira-speckit-vscode/
-cd d:\SpecKit\jira-speckit-vscode
-vsce package
-# → jira-speckit-0.1.0.vsix
-```
+---
 
-## Installing locally
+## Troubleshooting
 
-```bash
-code --install-extension jira-speckit-0.1.0.vsix
-```
+**"Cannot reach server" error in the sidebar**  
+→ The SpecKit backend is not running. Start it with `.venv\Scripts\uvicorn app:app --reload` in the SpecKit folder.
 
-## Publishing to the Marketplace
+**No open tickets showing, but there are tickets in Jira**  
+→ Check that `jiraSpeckit.serverUrl` points to the correct server address. Also verify the server's `.env` file has the right Jira project key.
 
-1. Create a publisher at <https://marketplace.visualstudio.com/manage>
-2. Generate a Personal Access Token (PAT) with **Marketplace → Manage** scope
-3. Set `"publisher"` in `package.json` to your publisher ID
-4. Run:
+**Resolved tickets show "Not available for this ticket"**  
+→ Those tickets were resolved before SpecKit started tracking them. Only tickets resolved through the SpecKit pipeline will have full Spec/Plan/Tasks/Implementation details.
 
-```bash
-vsce login <your-publisher-id>
-vsce publish
-```
+**Status bar is red**  
+→ The server is offline or unreachable. Start or restart the backend server.
+
