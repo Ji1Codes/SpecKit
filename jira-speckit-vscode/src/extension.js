@@ -8,6 +8,8 @@ const { TicketProvider }      = require('./ticketProvider');
 const { DetailPanel }         = require('./detailPanel');
 const { JiraClient }          = require('./jiraClient');
 const { AIPipeline }          = require('./aiPipeline');
+const { ApprovalPanel }       = require('./approvalPanel');
+const { SettingsPanel, PROVIDERS } = require('./settingsPanel');
 const { getWorkspaceContext } = require('./workspaceScanner');
 
 /**
@@ -33,6 +35,7 @@ function migrateFromLegacyJson(context) {
 }
 
 let statusBarItem;
+let llmStatusBar;
 let refreshTimer;
 let pollTimer;
 
@@ -40,6 +43,27 @@ let pollTimer;
 
 function activate(/** @type {vscode.ExtensionContext} */ context) {
     const cfg = () => vscode.workspace.getConfiguration('jiraSpeckit');
+
+    // ── LLM status bar selector ─────────────────────────────────────────
+    llmStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    llmStatusBar.command = 'jiraSpeckit.selectProvider';
+    llmStatusBar.tooltip = 'SpecKit: click to switch AI provider';
+    context.subscriptions.push(llmStatusBar);
+
+    function updateLlmBar() {
+        const p     = cfg().get('aiProvider') || 'azure-openai';
+        const found = PROVIDERS.find(x => x.id === p);
+        llmStatusBar.text = `$(hubot) ${found ? found.label : p}`;
+        llmStatusBar.show();
+    }
+    updateLlmBar();
+
+    // Refresh bar when user changes setting externally
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('jiraSpeckit.aiProvider')) updateLlmBar();
+        })
+    );
 
     // ── Core clients ────────────────────────────────────────────────────────
     const jira     = new JiraClient(cfg);
@@ -139,14 +163,19 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                         await jira.postComment(tid, result.comment);
                         await jira.transitionToDone(tid);
 
-                        // Write AI-generated files to the workspace
+                        // Show approval panel — let user decide which files to apply
                         const writtenFiles = [];
                         if (result.generatedFiles && result.generatedFiles.length) {
                             const wsRoot = vscode.workspace.workspaceFolders
                                 ? vscode.workspace.workspaceFolders[0].uri.fsPath
                                 : null;
-                            if (wsRoot) {
-                                for (const gf of result.generatedFiles) {
+
+                            const approvedFiles = await ApprovalPanel.show(
+                                context, tid, fields.summary || '', result.generatedFiles
+                            );
+
+                            if (wsRoot && approvedFiles.length) {
+                                for (const gf of approvedFiles) {
                                     try {
                                         const absPath = path.join(wsRoot, gf.path);
                                         const dir     = path.dirname(absPath);
@@ -234,7 +263,38 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.openSettings', () => {
-            vscode.commands.executeCommand('workbench.action.openSettings', 'jiraSpeckit');
+            // Test Jira connection using supplied form values (not yet saved)
+            async function testJiraFn(settings) {
+                const base  = (settings.jiraBaseUrl || '').replace(/\/$/, '');
+                const token = Buffer.from(`${settings.jiraEmail}:${settings.jiraApiToken}`).toString('base64');
+                const resp  = await fetch(`${base}/rest/api/3/myself`, {
+                    headers: { 'Authorization': `Basic ${token}`, 'Accept': 'application/json' },
+                    signal:  AbortSignal.timeout(10000),
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status} — check URL, email and token`);
+                const user = await resp.json();
+                const project = settings.jiraProjectKey || '(not set)';
+                return `Connected as ${user.displayName || user.emailAddress} · project: ${project}`;
+            }
+            SettingsPanel.show(context, cfg, testJiraFn);
+        }),
+
+        vscode.commands.registerCommand('jiraSpeckit.selectProvider', async () => {
+            const current = cfg().get('aiProvider') || 'azure-openai';
+            const items   = PROVIDERS.map(p => ({
+                label:       `${p.icon}  ${p.label}${p.id === current ? '  ✓' : ''}`,
+                description: p.hint,
+                value:       p.id,
+                picked:      p.id === current,
+            }));
+            const picked = await vscode.window.showQuickPick(items, {
+                placeHolder:        'Select AI provider for SpecKit',
+                matchOnDescription: true,
+            });
+            if (!picked) return;
+            await cfg().update('aiProvider', picked.value, vscode.ConfigurationTarget.Global);
+            updateLlmBar();
+            vscode.window.showInformationMessage(`SpecKit: switched to ${picked.label.trim()}`);
         }),
 
     );
