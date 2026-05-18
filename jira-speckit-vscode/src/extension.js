@@ -9,6 +9,7 @@ const { DetailPanel }         = require('./detailPanel');
 const { JiraClient }          = require('./jiraClient');
 const { AIPipeline }          = require('./aiPipeline');
 const { ApprovalPanel }       = require('./approvalPanel');
+const { ChatPanel }           = require('./chatPanel');
 const { SettingsPanel, PROVIDERS } = require('./settingsPanel');
 const { getWorkspaceContext } = require('./workspaceScanner');
 
@@ -277,6 +278,10 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                 return `Connected as ${user.displayName || user.emailAddress} · project: ${project}`;
             }
             SettingsPanel.show(context, cfg, testJiraFn);
+        }),
+
+        vscode.commands.registerCommand('jiraSpeckit.openChat', () => {
+            ChatPanel.createOrShow(context, pipeline);
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.selectProvider', async () => {

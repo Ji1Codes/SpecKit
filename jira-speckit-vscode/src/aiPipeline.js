@@ -54,10 +54,28 @@ class AIPipeline {
         }
     }
 
-    async _chatAzureOpenAI(cfg, messages, maxTokens) {
+    /**
+     * Ad-hoc chat used by the Chat Panel — caller supplies provider + model.
+     * Falls back to configured provider/model when overrides are absent.
+     */
+    async chatWith(messages, providerOverride = null, modelOverride = null, maxTokens = 2000) {
+        const cfg      = this._cfg();
+        const provider = providerOverride || cfg.get('aiProvider') || 'azure-openai';
+        const model    = modelOverride || null;
+
+        switch (provider) {
+            case 'openai':    return this._chatOpenAI(cfg, messages, maxTokens, model);
+            case 'anthropic': return this._chatAnthropic(cfg, messages, maxTokens, model);
+            case 'google':    return this._chatGoogle(cfg, messages, maxTokens, model);
+            case 'custom':    return this._chatCustom(cfg, messages, maxTokens, model);
+            default:          return this._chatAzureOpenAI(cfg, messages, maxTokens, model);
+        }
+    }
+
+    async _chatAzureOpenAI(cfg, messages, maxTokens, modelOverride = null) {
         const endpoint   = (cfg.get('azureOpenAiEndpoint') || '').replace(/\/$/, '');
         const apiKey     = cfg.get('azureOpenAiApiKey') || '';
-        const deployment = cfg.get('azureOpenAiDeployment') || 'gpt-4o';
+        const deployment = modelOverride || cfg.get('azureOpenAiDeployment') || 'gpt-4o';
         const apiVersion = cfg.get('azureOpenAiApiVersion') || '2024-12-01-preview';
 
         if (!endpoint) throw new Error('jiraSpeckit.azureOpenAiEndpoint is not configured.');
@@ -76,9 +94,9 @@ class AIPipeline {
         return (await resp.json()).choices[0].message.content;
     }
 
-    async _chatOpenAI(cfg, messages, maxTokens) {
+    async _chatOpenAI(cfg, messages, maxTokens, modelOverride = null) {
         const apiKey = cfg.get('openAiApiKey') || '';
-        const model  = cfg.get('openAiModel') || 'gpt-4o';
+        const model  = modelOverride || cfg.get('openAiModel') || 'gpt-4o';
 
         if (!apiKey) throw new Error('jiraSpeckit.openAiApiKey is not configured.');
 
@@ -92,9 +110,9 @@ class AIPipeline {
         return (await resp.json()).choices[0].message.content;
     }
 
-    async _chatAnthropic(cfg, messages, maxTokens) {
+    async _chatAnthropic(cfg, messages, maxTokens, modelOverride = null) {
         const apiKey = cfg.get('anthropicApiKey') || '';
-        const model  = cfg.get('anthropicModel') || 'claude-opus-4-5';
+        const model  = modelOverride || cfg.get('anthropicModel') || 'claude-opus-4-5';
 
         if (!apiKey) throw new Error('jiraSpeckit.anthropicApiKey is not configured.');
 
@@ -118,9 +136,9 @@ class AIPipeline {
         return (await resp.json()).content[0].text;
     }
 
-    async _chatGoogle(cfg, messages, maxTokens) {
+    async _chatGoogle(cfg, messages, maxTokens, modelOverride = null) {
         const apiKey = cfg.get('googleApiKey') || '';
-        const model  = cfg.get('googleModel') || 'gemini-2.0-flash';
+        const model  = modelOverride || cfg.get('googleModel') || 'gemini-2.0-flash';
 
         if (!apiKey) throw new Error('jiraSpeckit.googleApiKey is not configured.');
 
@@ -159,10 +177,10 @@ class AIPipeline {
         return (await resp.json()).candidates[0].content.parts[0].text;
     }
 
-    async _chatCustom(cfg, messages, maxTokens) {
+    async _chatCustom(cfg, messages, maxTokens, modelOverride = null) {
         const endpoint = (cfg.get('customApiEndpoint') || '').replace(/\/$/, '');
         const apiKey   = cfg.get('customApiKey') || '';
-        const model    = cfg.get('customApiModel') || '';
+        const model    = modelOverride || cfg.get('customApiModel') || '';
 
         if (!endpoint) throw new Error('jiraSpeckit.customApiEndpoint is not configured.');
 
