@@ -48,7 +48,7 @@ class ChatPanel {
         this._panel.webview.onDidReceiveMessage(m => this._onMessage(m), null, context.subscriptions);
         this._panel.onDidDispose(() => { ChatPanel._instance = null; }, null, context.subscriptions);
 
-        getWorkspaceContext(4000).then(ctx => {
+        getWorkspaceContext(12000).then(ctx => {
             this._wsCtx = ctx || '';
             this._post({ type: 'system', text: this._wsCtx ? 'Workspace context loaded.' : 'No workspace files found.' });
         }).catch(() => { this._wsCtx = ''; });
@@ -76,16 +76,29 @@ class ChatPanel {
         this._post({ type: 'thinking', on: true });
 
         const systemPrompt = [
-            'You are SpecKit — an expert AI software engineer assistant inside VS Code.',
-            'Help the user build features, fix bugs, write code, and understand their codebase.',
-            this._wsCtx ? '\nWorkspace context:\n' + this._wsCtx : '',
-            '\nUse markdown for formatting. Use fenced code blocks with a language tag for code.',
-            'When creating or modifying files, use this EXACT format (do NOT wrap the block in code fences):',
+            'You are SpecKit — an expert AI software engineer assistant embedded in VS Code.',
+            'You have full access to the user\'s workspace files listed below.',
+            'You can explain code, answer questions about the codebase, and make changes to files.',
+            '',
+            'RULES:',
+            '- Always use the workspace context to answer questions about the code — never say you cannot see the files.',
+            '- When the user asks to change something, look up the relevant file(s) from the workspace context and modify them.',
+            '  You do NOT need the user to specify which file to edit — infer it from context.',
+            '- If a change spans multiple files, output all of them.',
+            '- Use markdown for all responses. Use fenced code blocks with language tags for inline examples.',
+            '- When outputting full file changes (new or modified), use EXACTLY this format — one block per file:',
             '===FILE:relative/path/to/file===',
-            '(complete file contents here)',
+            '<complete updated file contents>',
             '===ENDFILE===',
-            'Multiple FILE blocks are allowed in one response.',
+            '  The path must be relative to the workspace root. Always output the COMPLETE file, not just the diff.',
+            '',
+            this._wsCtx ? 'WORKSPACE CONTEXT:\n' + this._wsCtx : '(no workspace files found)',
         ].filter(Boolean).join('\n');
+
+        // Trim history to last 20 messages to avoid exceeding context window
+        if (this._history.length > 20) {
+            this._history = this._history.slice(this._history.length - 20);
+        }
 
         this._history.push({ role: 'user', content: userText });
 
