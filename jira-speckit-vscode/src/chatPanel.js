@@ -105,16 +105,33 @@ class ChatPanel {
         try {
             const raw = await this._pipeline.chatWith(
                 [{ role: 'system', content: systemPrompt }, ...this._history],
-                provider, model
+                provider, model, 16000
             );
 
+            // Display: everything before the first file block marker
+            const _fbs = raw.search(/\n?===FILE:/);
+            const displayText = (_fbs >= 0 ? raw.slice(0, _fbs) : raw).trim();
+
+            // Extract file blocks — ===ENDFILE=== is optional (handles truncated responses)
             const fileBlocks = [];
-            const fileRe = /===FILE:([^\n=]+)===\n([\s\S]*?)===ENDFILE===/g;
+            const fileRe = /===FILE:([^\n=]+)===\n([\s\S]*?)(?:===ENDFILE===|(?=\n*===FILE:)|\s*$)/g;
             let m;
             while ((m = fileRe.exec(raw)) !== null) {
                 fileBlocks.push({ path: m[1].trim().replace(/^\/+/, ''), content: m[2] });
             }
-            const displayText = raw.replace(/===FILE:[^\n=]+===\n[\s\S]*?===ENDFILE===/g, '').trim();
+
+            // Attach original file content to each block so the webview can render a diff
+            const wsFolders = vscode.workspace.workspaceFolders;
+            if (wsFolders && wsFolders.length) {
+                fileBlocks.forEach(function(fb) {
+                    try {
+                        const absOrigPath = path.join(wsFolders[0].uri.fsPath, fb.path);
+                        if (fs.existsSync(absOrigPath)) {
+                            fb.originalContent = fs.readFileSync(absOrigPath, 'utf8');
+                        }
+                    } catch (_) {}
+                });
+            }
 
             this._history.push({ role: 'assistant', content: raw });
             this._post({ type: 'response', text: displayText, fileBlocks });
@@ -225,6 +242,12 @@ function getChatCSS() {
 '  padding:2px 5px;border-radius:3px;font-size:14px;line-height:1;\n' +
 '}\n' +
 '.icon-btn:hover{background:var(--vscode-toolbar-hoverBackground)}\n' +
+'.new-chat-btn{\n' +
+'  background:var(--vscode-button-secondaryBackground,rgba(90,93,94,0.31));border:none;cursor:pointer;\n' +
+'  color:var(--vscode-button-secondaryForeground,var(--vscode-foreground));\n' +
+'  padding:3px 8px;border-radius:3px;font-size:11px;font-weight:500;white-space:nowrap;\n' +
+'}\n' +
+'.new-chat-btn:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(90,93,94,0.5))}\n' +
 
 /* messages */
 '.msgs{\n' +
@@ -382,6 +405,11 @@ function getChatCSS() {
 '.btn-den:disabled{opacity:.4;cursor:default}\n' +
 '.fc.accepted{opacity:.65}\n' +
 '.fc.denied{opacity:.4}\n' +
+'.diff-view{overflow:auto;max-height:220px;padding:0;background:var(--vscode-editor-background)}\n' +
+'.dl{display:block;font-family:var(--vscode-editor-font-family,monospace);font-size:11.5px;line-height:1.5;white-space:pre;padding:0 10px}\n' +
+'.dl-add{background:rgba(40,200,80,.15);color:var(--vscode-gitDecoration-addedResourceForeground,#4caf50)}\n' +
+'.dl-del{background:rgba(230,60,50,.12);color:var(--vscode-gitDecoration-deletedResourceForeground,#f47067);text-decoration:line-through}\n' +
+'.dl-s{color:var(--vscode-editor-foreground)}\n' +
 
 /* thinking */
 '.thinking{\n' +
@@ -445,7 +473,7 @@ function getChatBody(provOptHtml, initModel) {
 '  <div class="topbar-right">\n' +
 '    <select class="prov-sel" id="provSel">' + provOptHtml + '</select>\n' +
 '    <input class="model-inp" id="modelInp" type="text" value="' + initModel + '" placeholder="model" />\n' +
-'    <button class="icon-btn" id="clearBtn" title="New conversation">&#x2B;</button>\n' +
+'    <button class="new-chat-btn" id="clearBtn" title="Start a new conversation">&#x2B; New Chat</button>\n' +
 '  </div>\n' +
 '</div>\n' +
 '<div class="msgs" id="msgs"></div>\n' +
@@ -579,25 +607,70 @@ function getChatScript(modelsJson) {
 '  scrollEnd();\n' +
 '}\n' +
 '\n' +
+'/* ── Line diff helpers ── */\n' +
+'function lcsDP(a,b){\n' +
+'  var m=a.length,n=b.length,dp=[];\n' +
+'  for(var i=0;i<=m;i++){dp[i]=new Int32Array(n+1);}\n' +
+'  for(var i=1;i<=m;i++)for(var j=1;j<=n;j++){\n' +
+'    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);\n' +
+'  }\n' +
+'  return dp;\n' +
+'}\n' +
+'function lineDiff(oldL,newL){\n' +
+'  if(oldL.length>400||newL.length>400)return null;\n' +
+'  var dp=lcsDP(oldL,newL),res=[],i=oldL.length,j=newL.length;\n' +
+'  while(i>0||j>0){\n' +
+'    if(i>0&&j>0&&oldL[i-1]===newL[j-1]){res.unshift({t:"s",l:newL[j-1]});i--;j--;}\n' +
+'    else if(j>0&&(i===0||dp[i][j-1]>=dp[i-1][j])){res.unshift({t:"+",l:newL[j-1]});j--;}\n' +
+'    else{res.unshift({t:"-",l:oldL[i-1]});i--;}\n' +
+'  }\n' +
+'  return res;\n' +
+'}\n' +
+'\n' +
 '/* ── File card ── */\n' +
 'function buildFC(file){\n' +
 '  var id=++fid;\n' +
 '  fileStore[id]=file;\n' +
 '  var lines=file.content.split("\\n");\n' +
-'  var prev=lines.slice(0,200).join("\\n")+(lines.length>200?"\\n\\u2026 ("+(lines.length-200)+" more lines)":"");\n' +
 '  var meta=lines.length+(lines.length===1?" line":" lines");\n' +
 '  var card=document.createElement("div");card.className="fc";card.dataset.fcid=id;\n' +
 '\n' +
 '  var hdr=document.createElement("div");hdr.className="fc-hdr";hdr.dataset.action="toggle";hdr.dataset.id=id;\n' +
 '  var ico=document.createElement("span");ico.textContent="\\u{1F4C4}";\n' +
 '  var nm=document.createElement("span");nm.className="fc-name";nm.textContent=file.path;nm.title=file.path;\n' +
-'  var mt=document.createElement("span");mt.className="fc-meta";mt.textContent=meta;\n' +
+'  var mt=document.createElement("span");mt.className="fc-meta";mt.id="mt"+id;mt.textContent=meta;\n' +
 '  var cv=document.createElement("span");cv.className="fc-chev";cv.id="cv"+id;cv.innerHTML="&#9658;";\n' +
 '  hdr.appendChild(ico);hdr.appendChild(nm);hdr.appendChild(mt);hdr.appendChild(cv);\n' +
 '\n' +
 '  var preWrap=document.createElement("div");preWrap.className="fc-pre";preWrap.id="fcpre"+id;\n' +
-'  var pre=document.createElement("pre");pre.textContent=prev;\n' +
-'  preWrap.appendChild(pre);\n' +
+'  if(file.originalContent!==undefined){\n' +
+'    var oldL=file.originalContent.split("\\n");\n' +
+'    var newL=lines;\n' +
+'    var diff=lineDiff(oldL,newL);\n' +
+'    var changed=diff?diff.filter(function(d){return d.t!=="s";}).length:0;\n' +
+'    if(diff&&changed>0){\n' +
+'      meta+=" · "+changed+" change"+(changed===1?"":"s");\n' +
+'      mt.textContent=meta;\n' +
+'      var dv=document.createElement("div");dv.className="diff-view";\n' +
+'      diff.forEach(function(d){\n' +
+'        var sp=document.createElement("span");\n' +
+'        sp.className="dl dl-"+(d.t==="s"?"s":d.t);\n' +
+'        sp.textContent=(d.t==="+"?"+ ":d.t==="-"?"- ":"  ")+d.l;\n' +
+'        dv.appendChild(sp);\n' +
+'      });\n' +
+'      preWrap.appendChild(dv);\n' +
+'    }else{\n' +
+'      if(diff&&changed===0)meta+=" (no changes)";\n' +
+'      mt.textContent=meta;\n' +
+'      var pre=document.createElement("pre");\n' +
+'      pre.textContent=lines.slice(0,200).join("\\n")+(lines.length>200?"\\n\\u2026 ("+(lines.length-200)+" more lines)":"");\n' +
+'      preWrap.appendChild(pre);\n' +
+'    }\n' +
+'  }else{\n' +
+'    var pre=document.createElement("pre");\n' +
+'    pre.textContent=lines.slice(0,200).join("\\n")+(lines.length>200?"\\n\\u2026 ("+(lines.length-200)+" more lines)":"");\n' +
+'    preWrap.appendChild(pre);\n' +
+'  }\n' +
 '\n' +
 '  var foot=document.createElement("div");foot.className="fc-foot";\n' +
 '  var accBtn=document.createElement("button");accBtn.className="btn-acc";accBtn.dataset.action="accept";accBtn.dataset.id=id;accBtn.id="acc"+id;accBtn.textContent="Accept";\n' +
