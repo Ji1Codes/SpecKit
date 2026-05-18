@@ -14,22 +14,38 @@ const PROVIDER_DEFAULTS = {
     'custom':       { label: 'Custom / Local',modelKey: 'customApiModel',        fallback: '' },
 };
 
+function _detectChatSteps(raw, fileBlocks) {
+    const result = {};
+    if (/\bUNDERSTAND\b/i.test(raw))
+        result['Understand'] = (raw.match(/UNDERSTAND[\s\S]{0,200}/)?.[0] || '').slice(0, 200);
+    if (/\bPLAN\b[\s\S]*?\d+\./i.test(raw))
+        result['Plan'] = (raw.match(/PLAN[\s\S]{0,300}/)?.[0] || '').slice(0, 300);
+    if (fileBlocks.length > 0)
+        result['Execute'] = fileBlocks.map(f => f.path).join(', ').slice(0, 200);
+    if (/✅\s*Done/i.test(raw))
+        result['Confirm'] = (raw.match(/✅\s*Done[^\n]*/)?.[0] || '✅ Done').slice(0, 200);
+    return result;
+}
+
 class ChatPanel {
     static _instance = null;
 
-    static createOrShow(context, pipeline) {
+    static createOrShow(context, pipeline, workflowEmit) {
         if (ChatPanel._instance) {
             ChatPanel._instance._panel.reveal(vscode.ViewColumn.One);
+            // Reset any stuck busy/thinking state from a previous crashed session
+            ChatPanel._instance._post({ type: 'thinking', on: false });
             return;
         }
-        new ChatPanel(context, pipeline);
+        new ChatPanel(context, pipeline, workflowEmit);
     }
 
-    constructor(context, pipeline) {
-        this._context  = context;
-        this._pipeline = pipeline;
-        this._history  = [];
-        this._wsCtx    = '';
+    constructor(context, pipeline, workflowEmit = () => {}) {
+        this._context       = context;
+        this._pipeline      = pipeline;
+        this._workflowEmit  = workflowEmit;
+        this._history       = [];
+        this._wsCtx         = '';
 
         const cfg = vscode.workspace.getConfiguration('jiraSpeckit');
         this._activeProv  = cfg.get('aiProvider') || 'azure-openai';
@@ -62,7 +78,8 @@ class ChatPanel {
         switch (msg.type) {
             case 'send':         return this._handleChat(msg.text, msg.provider, msg.model);
             case 'writeFile':    return this._writeFile(msg.filePath, msg.content);
-            case 'clearHistory': this._history = []; return;
+            case 'clearHistory': this._saveSessions(); this._history = []; return;
+            case 'showHistory':    return this._handleShowHistory();
             case 'providerChange':
                 this._activeProv  = msg.provider;
                 this._activeModel = msg.model;
@@ -76,23 +93,51 @@ class ChatPanel {
         this._post({ type: 'thinking', on: true });
 
         const systemPrompt = [
-            'You are SpecKit — an expert AI software engineer assistant embedded in VS Code.',
-            'You have full access to the user\'s workspace files listed below.',
-            'You can explain code, answer questions about the codebase, and make changes to files.',
+            'You are SpecKit — an expert AI software engineer embedded in VS Code.',
             '',
-            'RULES:',
-            '- Always use the workspace context to answer questions about the code — never say you cannot see the files.',
-            '- When the user asks to change something, look up the relevant file(s) from the workspace context and modify them.',
-            '  You do NOT need the user to specify which file to edit — infer it from context.',
-            '- If a change spans multiple files, output all of them.',
-            '- Use markdown for all responses. Use fenced code blocks with language tags for inline examples.',
-            '- When outputting full file changes (new or modified), use EXACTLY this format — one block per file:',
-            '===FILE:relative/path/to/file===',
-            '<complete updated file contents>',
+            '\u2501\u2501\u2501 FILE OUTPUT FORMAT \u2501\u2501\u2501',
+            'To create or modify files use EXACTLY this format \u2014 one block per file:',
+            '',
+            '===FILE:relative/path/from/workspace/root===',
+            '<raw file content here>',
             '===ENDFILE===',
-            '  The path must be relative to the workspace root. Always output the COMPLETE file, not just the diff.',
             '',
-            this._wsCtx ? 'WORKSPACE CONTEXT:\n' + this._wsCtx : '(no workspace files found)',
+            'CRITICAL FILE BLOCK RULES (violations break the editor):',
+            '\u2022 Write RAW content only \u2014 NEVER wrap it in ```language fences or backticks inside a FILE block.',
+            '\u2022 Always output the COMPLETE file \u2014 never a snippet or partial diff.',
+            '\u2022 Path is relative to workspace root (e.g. static/index.html, app.py).',
+            '\u2022 Output ALL changed files in a single response.',
+            '',
+            '\u2501\u2501\u2501 WORKFLOW \u2014 follow this for every coding request \u2501\u2501\u2501',
+            '1. UNDERSTAND \u2014 Read workspace context, briefly state what currently exists.',
+            '2. PLAN \u2014 List numbered steps of exactly what you will add/change and why.',
+            '3. EXECUTE \u2014 Output all FILE blocks (complete raw files, no markdown fences inside).',
+            '4. CONFIRM \u2014 End with:  \u2705 Done \u2014 <one-line summary of what changed>',
+            '',
+            'Additional rules:',
+            '- Never ask "shall I proceed?" \u2014 just execute.',
+            '- Never put full file code inside ```fenced blocks``` \u2014 always use FILE blocks for full files.',
+            '- Small inline code examples in plan/explanation are fine with fences, but never full files.',
+            '',
+            '\u2501\u2501\u2501 CODE EXECUTION \u2501\u2501\u2501',
+            'You can run terminal commands to test, build, lint, or verify your changes.',
+            'Use this format (commands run in the workspace root):',
+            '',
+            '  ===RUN: <shell command>===',
+            '',
+            'Examples:  ===RUN: npm test===   ===RUN: python -m pytest===   ===RUN: node app.py===',
+            '',
+            'Rules for RUN blocks:',
+            '\u2022 ALWAYS run at least one validation command after writing files (syntax check, lint, or test).',
+            '\u2022 For Python: ===RUN: python -m py_compile <file>=== or ===RUN: python -m pytest===',
+            '\u2022 For Node/JS: ===RUN: node --check <file>=== or ===RUN: npm test===',
+            '\u2022 For HTML/CSS only: ===RUN: echo "Files written OK"===',
+            '\u2022 Run build commands to confirm no compile errors.',
+            '\u2022 Output is returned to you automatically \u2014 wait for results before proceeding.',
+            '\u2022 Max 3 RUN blocks per response.',
+            '\u2022 Never use destructive commands (rm -rf, git push --force, DROP TABLE, etc.).',
+            '',
+            this._wsCtx ? '\u2501\u2501\u2501 WORKSPACE CONTEXT \u2501\u2501\u2501\n' + this._wsCtx : '(no workspace files found)',
         ].filter(Boolean).join('\n');
 
         // Trim history to last 20 messages to avoid exceeding context window
@@ -100,46 +145,150 @@ class ChatPanel {
             this._history = this._history.slice(this._history.length - 20);
         }
 
+        const sessionId = 'chat-' + Date.now();
+        try { await this._workflowEmit({ id: sessionId, type: 'chat', summary: userText.slice(0, 200).split('\n')[0], action: 'create' }); } catch (_) {}
+
+        const histLenBefore = this._history.length;
         this._history.push({ role: 'user', content: userText });
 
+        const MAX_ROUNDS = 5;
+        let round = 0;
+
         try {
-            const raw = await this._pipeline.chatWith(
-                [{ role: 'system', content: systemPrompt }, ...this._history],
-                provider, model, 16000
-            );
+            while (round < MAX_ROUNDS) {
+                round++;
 
-            // Display: everything before the first file block marker
-            const _fbs = raw.search(/\n?===FILE:/);
-            const displayText = (_fbs >= 0 ? raw.slice(0, _fbs) : raw).trim();
+                // Signal the webview to open a new streaming message bubble
+                this._post({ type: 'streamStart' });
 
-            // Extract file blocks — ===ENDFILE=== is optional (handles truncated responses)
-            const fileBlocks = [];
-            const fileRe = /===FILE:([^\n=]+)===\n([\s\S]*?)(?:===ENDFILE===|(?=\n*===FILE:)|\s*$)/g;
-            let m;
-            while ((m = fileRe.exec(raw)) !== null) {
-                fileBlocks.push({ path: m[1].trim().replace(/^\/+/, ''), content: m[2] });
+                const raw = await this._pipeline.streamWith(
+                    [{ role: 'system', content: systemPrompt }, ...this._history],
+                    provider, model, 16000,
+                    (chunk) => this._post({ type: 'streamChunk', chunk })
+                );
+
+                // Extract file blocks — ===ENDFILE=== is optional (handles truncated responses)
+                const fileBlocks = [];
+                const fileRe = /===FILE:([^\n=]+)===\n([\s\S]*?)(?:===ENDFILE===|(?=\n*===FILE:)|\s*$)/g;
+                let m;
+                while ((m = fileRe.exec(raw)) !== null) {
+                    const rawContent = m[2]
+                        .replace(/^```[^\n]*\n/, '')
+                        .replace(/\n```\s*$/, '');
+                    fileBlocks.push({ path: m[1].trim().replace(/^\/+/, ''), content: rawContent });
+                }
+
+                // Attach original file content for diff view
+                const wsFolders = vscode.workspace.workspaceFolders;
+                if (wsFolders && wsFolders.length) {
+                    fileBlocks.forEach(function(fb) {
+                        try {
+                            const absOrigPath = path.join(wsFolders[0].uri.fsPath, fb.path);
+                            if (fs.existsSync(absOrigPath)) fb.originalContent = fs.readFileSync(absOrigPath, 'utf8');
+                        } catch (_) {}
+                    });
+                }
+
+                // Extract RUN blocks: ===RUN: command===
+                const runBlocks = [];
+                const runRe = /===RUN:\s*(.+?)===/g;
+                let rm;
+                while ((rm = runRe.exec(raw)) !== null) runBlocks.push(rm[1].trim());
+
+                // Display text: strip FILE markers and RUN blocks
+                const _fbs = raw.search(/\n?===FILE:/);
+                const displayText = ((_fbs >= 0 ? raw.slice(0, _fbs) : raw)
+                    .replace(/===RUN:\s*.+?===/g, '')
+                    .trim());
+
+                // Push AI turn to history, finalize streaming bubble
+                this._history.push({ role: 'assistant', content: raw });
+                this._post({ type: 'streamEnd', displayText, fileBlocks });
+
+                // Emit detected workflow steps to the Workflow Panel
+                const detected = _detectChatSteps(raw, fileBlocks);
+                for (const [stepName, preview] of Object.entries(detected)) {
+                    try { await this._workflowEmit({ id: sessionId, stageName: stepName, status: 'done', outputPreview: preview }); } catch (_) {}
+                }
+
+                // No run commands — we're done
+                if (runBlocks.length === 0) break;
+
+                // Execute each command (cap at 3 per round) and show tool blocks
+                let toolResults = '[TOOL RESULTS]\n';
+                let cmdId = Date.now();
+                for (const cmd of runBlocks.slice(0, 3)) {
+                    const id = cmdId++;
+                    this._post({ type: 'toolRun', id, command: cmd });
+                    const result = await this._runCommand(cmd);
+                    this._post({ type: 'toolResult', id, command: cmd, output: result.text, exitCode: result.code });
+                    toolResults += `$ ${cmd}\n\`\`\`\n${result.text}\n\`\`\`\nexit code: ${result.code}\n\n`;
+                }
+
+                // Feed results back as next user turn
+                this._history.push({ role: 'user', content: toolResults.trim() });
             }
-
-            // Attach original file content to each block so the webview can render a diff
-            const wsFolders = vscode.workspace.workspaceFolders;
-            if (wsFolders && wsFolders.length) {
-                fileBlocks.forEach(function(fb) {
-                    try {
-                        const absOrigPath = path.join(wsFolders[0].uri.fsPath, fb.path);
-                        if (fs.existsSync(absOrigPath)) {
-                            fb.originalContent = fs.readFileSync(absOrigPath, 'utf8');
-                        }
-                    } catch (_) {}
-                });
-            }
-
-            this._history.push({ role: 'assistant', content: raw });
-            this._post({ type: 'response', text: displayText, fileBlocks });
         } catch (err) {
-            this._history.pop();
+            this._post({ type: 'streamEnd', displayText: '', fileBlocks: [] }); // close any open bubble
+            this._history.length = histLenBefore; // restore history on error
             this._post({ type: 'error', message: err.message });
         } finally {
             this._post({ type: 'thinking', on: false });
+        }
+    }
+
+    async _runCommand(cmd) {
+        const { exec } = require('child_process');
+        const folders = vscode.workspace.workspaceFolders;
+        const cwd = folders?.[0]?.uri?.fsPath || process.cwd();
+        return new Promise(resolve => {
+            exec(cmd, { cwd, timeout: 30000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+                let text = (stdout || '').trim();
+                if (stderr && stderr.trim()) text += (text ? '\n' : '') + stderr.trim();
+                resolve({ text: text.slice(0, 3000) || '(no output)', code: err ? (err.code || 1) : 0 });
+            });
+        });
+    }
+
+    _saveSessions() {
+        if (!this._history.length) return;
+        const sessions = this._context.globalState.get('chatSessions', []);
+        const firstUser = this._history.find(m => m.role === 'user');
+        const title = firstUser ? firstUser.content.slice(0, 70) : 'Chat';
+        sessions.push({ timestamp: Date.now(), title, messages: this._history.slice() });
+        if (sessions.length > 50) sessions.splice(0, sessions.length - 50);
+        this._context.globalState.update('chatSessions', sessions);
+    }
+
+    async _handleShowHistory() {
+        const sessions = this._context.globalState.get('chatSessions', []);
+        if (!sessions.length) {
+            vscode.window.showInformationMessage('SpecKit: No saved sessions yet — chat then click New Chat to save one.');
+            return;
+        }
+        const items = sessions.slice().reverse().map((s, i) => ({
+            label: '$(comment-discussion) ' + (s.title || 'Chat'),
+            description: new Date(s.timestamp).toLocaleString(),
+            sessionIdx: sessions.length - 1 - i,
+        }));
+        const picked = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Select a previous conversation to reload',
+            matchOnDescription: true,
+        });
+        if (!picked) return;
+        const session = sessions[picked.sessionIdx];
+        this._history = session.messages.slice();
+        this._post({ type: 'clearMessages' });
+        this._post({ type: 'system', text: 'Loaded session: ' + session.title });
+        for (const msg of session.messages) {
+            if (msg.role === 'user') {
+                this._post({ type: 'userMessage', text: msg.content });
+            } else if (msg.role === 'assistant') {
+                const raw = msg.content;
+                const fbs = raw.search(/\n?===FILE:/);
+                const displayText = (fbs >= 0 ? raw.slice(0, fbs) : raw).trim();
+                this._post({ type: 'response', text: displayText, fileBlocks: [] });
+            }
         }
     }
 
@@ -410,6 +559,20 @@ function getChatCSS() {
 '.dl-add{background:rgba(40,200,80,.15);color:var(--vscode-gitDecoration-addedResourceForeground,#4caf50)}\n' +
 '.dl-del{background:rgba(230,60,50,.12);color:var(--vscode-gitDecoration-deletedResourceForeground,#f47067);text-decoration:line-through}\n' +
 '.dl-s{color:var(--vscode-editor-foreground)}\n' +
+'/* streaming cursor */\n' +
+'.streaming-body{white-space:pre-wrap;font-family:inherit;font-size:inherit}\n' +
+'.streaming-body::after{content:"\\u258C";animation:sk-blink .6s step-end infinite;opacity:.7}\n' +
+'@keyframes sk-blink{50%{opacity:0}}\n' +
+'/* tool run blocks */\n' +
+'.tool-msg{padding:0 16px 4px}\n' +
+'.tool-blk{background:var(--vscode-terminal-background,#1e1e1e);border:1px solid var(--vscode-panel-border,rgba(128,128,128,.25));border-radius:6px;overflow:hidden;font-family:var(--vscode-editor-font-family,monospace);font-size:12px;margin:4px 0}\n' +
+'.tool-cmd{display:flex;align-items:center;gap:8px;padding:5px 10px;background:rgba(255,255,255,.04);border-bottom:1px solid rgba(128,128,128,.15)}\n' +
+'.tool-cmd-icon{color:#4ec9b0;font-style:normal}\n' +
+'.tool-cmd code{flex:1;color:var(--vscode-editor-foreground)}\n' +
+'.tool-out{padding:8px 10px;white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto;color:var(--vscode-terminal-foreground,#ccc)}\n' +
+'.tool-out.running{font-style:italic;color:var(--vscode-descriptionForeground)}\n' +
+'.tool-exit{padding:2px 10px 6px;font-size:11px}\n' +
+'.tool-exit.ok{color:#4ec9b0}.tool-exit.fail{color:#f48771}\n' +
 
 /* thinking */
 '.thinking{\n' +
@@ -462,6 +625,7 @@ function getChatCSS() {
 '.send-btn:hover:not(:disabled){opacity:.85}\n' +
 '.send-btn:disabled{opacity:.3;cursor:default}\n' +
 '.inp-hint{font-size:10px;color:var(--vscode-descriptionForeground);margin-top:4px;padding:0 2px;display:flex;justify-content:space-between}\n' +
+'.md-sec{font-size:.85em;font-weight:700;letter-spacing:.08em;color:var(--vscode-charts-blue,#4a9);text-transform:uppercase;margin:.9em 0 .2em;padding-bottom:.2em;border-bottom:1px solid var(--vscode-panel-border,#2224)}\n' +
 '</style>\n';
 }
 
@@ -473,7 +637,8 @@ function getChatBody(provOptHtml, initModel) {
 '  <div class="topbar-right">\n' +
 '    <select class="prov-sel" id="provSel">' + provOptHtml + '</select>\n' +
 '    <input class="model-inp" id="modelInp" type="text" value="' + initModel + '" placeholder="model" />\n' +
-'    <button class="new-chat-btn" id="clearBtn" title="Start a new conversation">&#x2B; New Chat</button>\n' +
+'    <button class="new-chat-btn" id="histBtn" title="Browse previous conversations">\u{1F553} History</button>\n' +
+'    <button class="new-chat-btn" id="clearBtn" title="Save &amp; start a new conversation">&#x2B; New Chat</button>\n' +
 '  </div>\n' +
 '</div>\n' +
 '<div class="msgs" id="msgs"></div>\n' +
@@ -496,9 +661,11 @@ function getChatScript(modelsJson) {
 'var vscode=acquireVsCodeApi();\n' +
 'var MODELS=' + modelsJson + ';\n' +
 'var fileStore={};\n' +
+'var _sd=null,_sb=null,_sr="";\n' +  // streaming: div, body, raw accumulator
 'var pending={};\n' +
 'var fid=0;\n' +
 'var busy=false;\n' +
+'var _busyTimer=null;\n' +
 'var msgsEl=document.getElementById("msgs");\n' +
 'var inpEl=document.getElementById("inp");\n' +
 'var sendBtn=document.getElementById("sendBtn");\n' +
@@ -539,6 +706,7 @@ function getChatScript(modelsJson) {
 '}\n' +
 '\n' +
 'function renderMd(raw){\n' +
+'  raw=(raw||"").replace(/[\u258c\u2588\u2584\u2580\u2590]/g,"").trim();\n' +
 '  var lines=raw.split("\\n");\n' +
 '  var out="";\n' +
 '  var i=0;\n' +
@@ -571,6 +739,10 @@ function getChatScript(modelsJson) {
 '    /* numbered list */\n' +
 '    var olm=line.match(/^\\d+\\.\\s+(.+)$/);\n' +
 '    if(olm){if(!inOl){closeList();out+="<ol>";inOl=true;}out+="<li>"+inlineMd(olm[1])+"</li>";i++;continue;}\n' +
+'    /* hr */\n' +
+'    if(/^---+$/.test(line.trim())||/^\\*\\*\\*+$/.test(line.trim())){closeList();out+="<hr>";i++;continue;}\n' +
+'    /* workflow section headings */\n' +
+'    if(/^(UNDERSTAND|PLAN|EXECUTE|CONFIRM|TASKS?)$/.test(line.trim())){closeList();out+=\'<h2 class="md-sec">\'+ line.trim()+\'</h2>\';i++;continue;}\n' +
 '    /* blank line */\n' +
 '    if(line.trim()===""){closeList();out+="<br>";i++;continue;}\n' +
 '    /* paragraph */\n' +
@@ -731,6 +903,8 @@ function getChatScript(modelsJson) {
 '}\n' +
 'sendBtn.addEventListener("click",doSend);\n' +
 'clearBtn.addEventListener("click",doClear);\n' +
+'var histBtn=document.getElementById("histBtn");\n' +
+'if(histBtn)histBtn.addEventListener("click",function(){vscode.postMessage({type:"showHistory"});});\n' +
 'inpEl.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();doSend();}});\n' +
 'inpEl.addEventListener("input",autoResize);\n' +
 'provSel.addEventListener("change",function(){modelInp.value=MODELS[provSel.value]||"";updProvLbl();vscode.postMessage({type:"providerChange",provider:provSel.value,model:modelInp.value});});\n' +
@@ -744,9 +918,11 @@ function getChatScript(modelsJson) {
 '  switch(msg.type){\n' +
 '    case "system":addMsg("system",msg.text);break;\n' +
 '    case "thinking":\n' +
+'      if(_busyTimer){clearTimeout(_busyTimer);_busyTimer=null;}\n' +
 '      busy=!!msg.on;\n' +
 '      thinkEl.classList.toggle("on",busy);\n' +
 '      sendBtn.disabled=busy;\n' +
+'      if(busy){_busyTimer=setTimeout(function(){busy=false;sendBtn.disabled=false;thinkEl.classList.remove("on");},90000);}\n' +
 '      if(busy){\n' +
 '        var o=provSel.options[provSel.selectedIndex];\n' +
 '        thinkLbl.textContent=(o?o.text.trim():"SpecKit")+" is thinking\\u2026";\n' +
@@ -755,6 +931,59 @@ function getChatScript(modelsJson) {
 '      break;\n' +
 '    case "response":addMsg("assistant",msg.text||"",msg.fileBlocks);break;\n' +
 '    case "error":addMsg("error","Error: "+(msg.message||"unknown error"));break;\n' +
+'    case "clearMessages":msgsEl.innerHTML="";fileStore={};pending={};fid=0;_sd=null;_sb=null;_sr="";break;\n' +
+'    case "userMessage":addMsg("user",msg.text||"");break;\n' +
+'    case "streamStart":{\n' +
+'      _sr="";\n' +
+'      _sd=document.createElement("div");_sd.className="msg assistant";\n' +
+'      var _shdr=document.createElement("div");_shdr.className="msg-hdr";\n' +
+'      var _sico=document.createElement("div");_sico.className="msg-icon";_sico.textContent="SK";\n' +
+'      var _slbl=document.createElement("span");_slbl.textContent="SpecKit";\n' +
+'      _shdr.appendChild(_sico);_shdr.appendChild(_slbl);_sd.appendChild(_shdr);\n' +
+'      _sb=document.createElement("div");_sb.className="streaming-body";_sd.appendChild(_sb);\n' +
+'      msgsEl.appendChild(_sd);scrollEnd();\n' +
+'      break;\n' +
+'    }\n' +
+'    case "streamChunk":{\n' +
+'      if(!_sd)break;\n' +
+'      _sr+=msg.chunk;\n' +
+'      var _cfbs=_sr.search(/\\n?===FILE:/);\n' +
+'      var _ctxt=(_cfbs>=0?_sr.slice(0,_cfbs):_sr).replace(/===RUN:\\s*.+?===/g,"").replace(/[\\u258c\\u2588]/g,"");\n' +
+'      if(_sb){var _sl=esc(_ctxt).replace(/\\*\\*([^*\\n]{1,120})\\*\\*/g,"<strong>$1</strong>").replace(/`([^`\\n]{1,80})`/g,"<code>$1</code>").replace(/\\n/g,"<br>");_sb.innerHTML=_sl;}\n' +
+'      scrollEnd();\n' +
+'      break;\n' +
+'    }\n' +
+'    case "streamEnd":{\n' +
+'      if(!_sd){if(msg.displayText||( msg.fileBlocks&&msg.fileBlocks.length))addMsg("assistant",msg.displayText||"",msg.fileBlocks||[]);break;}\n' +
+'      if(_sb){_sb.className="md";_sb.innerHTML=renderMd(msg.displayText||"");}\n' +
+'      if(msg.fileBlocks&&msg.fileBlocks.length)for(var _fi=0;_fi<msg.fileBlocks.length;_fi++)_sd.appendChild(buildFC(msg.fileBlocks[_fi]));\n' +
+'      _sd=null;_sb=null;_sr="";\n' +
+'      scrollEnd();\n' +
+'      break;\n' +
+'    }\n' +
+'    case "toolRun":{\n' +
+'      var tblk=document.createElement("div");tblk.className="tool-msg";tblk.id="tb-"+msg.id;\n' +
+'      var tblkInner=document.createElement("div");tblkInner.className="tool-blk";\n' +
+'      var tcmd=document.createElement("div");tcmd.className="tool-cmd";\n' +
+'      var tico=document.createElement("i");tico.className="tool-cmd-icon";tico.textContent="\u25b6";\n' +
+'      var tcode=document.createElement("code");tcode.textContent=msg.command;\n' +
+'      tcmd.appendChild(tico);tcmd.appendChild(tcode);\n' +
+'      var tout=document.createElement("div");tout.className="tool-out running";tout.textContent="Running\u2026";\n' +
+'      tblkInner.appendChild(tcmd);tblkInner.appendChild(tout);tblk.appendChild(tblkInner);\n' +
+'      msgsEl.appendChild(tblk);scrollEnd();\n' +
+'      break;\n' +
+'    }\n' +
+'    case "toolResult":{\n' +
+'      var tb=document.getElementById("tb-"+msg.id);if(!tb)break;\n' +
+'      var tbout=tb.querySelector(".tool-out");\n' +
+'      if(tbout){tbout.className="tool-out";tbout.textContent=msg.output||"(no output)";}\n' +
+'      var texitDiv=document.createElement("div");\n' +
+'      texitDiv.className="tool-exit "+(msg.exitCode===0?"ok":"fail");\n' +
+'      texitDiv.textContent=(msg.exitCode===0?"\u2713 ":"\u2717 ")+"exit "+msg.exitCode;\n' +
+'      var tblkEl=tb.querySelector(".tool-blk");if(tblkEl)tblkEl.appendChild(texitDiv);\n' +
+'      scrollEnd();\n' +
+'      break;\n' +
+'    }\n' +
 '    case "writeResult":{\n' +
 '      var p=pending[msg.filePath];\n' +
 '      if(!p)break;\n' +

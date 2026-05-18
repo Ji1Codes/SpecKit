@@ -72,6 +72,148 @@ class AIPipeline {
         }
     }
 
+    /**
+     * Like chatWith() but streams tokens to onChunk(delta) as they arrive.
+     * Falls back to non-streaming for Google (which uses a different protocol).
+     * Returns the full text when the stream is complete.
+     */
+    async streamWith(messages, providerOverride = null, modelOverride = null, maxTokens = 2000, onChunk = () => {}) {
+        const cfg      = this._cfg();
+        const provider = providerOverride || cfg.get('aiProvider') || 'azure-openai';
+        const model    = modelOverride || null;
+
+        switch (provider) {
+            case 'openai':    return this._streamOpenAI(cfg, messages, maxTokens, model, onChunk);
+            case 'anthropic': return this._streamAnthropic(cfg, messages, maxTokens, model, onChunk);
+            case 'custom':    return this._streamCustom(cfg, messages, maxTokens, model, onChunk);
+            case 'google':    {
+                // Google SSE is non-standard; call non-streaming then fire onChunk with full text
+                const text = await this._chatGoogle(cfg, messages, maxTokens, model);
+                onChunk(text);
+                return text;
+            }
+            default:          return this._streamAzureOpenAI(cfg, messages, maxTokens, model, onChunk);
+        }
+    }
+
+    async _streamAzureOpenAI(cfg, messages, maxTokens, modelOverride, onChunk) {
+        const endpoint   = (cfg.get('azureOpenAiEndpoint') || '').replace(/\/$/, '');
+        const apiKey     = cfg.get('azureOpenAiApiKey') || '';
+        const deployment = modelOverride || cfg.get('azureOpenAiDeployment') || 'gpt-4o';
+        const apiVersion = cfg.get('azureOpenAiApiVersion') || '2024-12-01-preview';
+
+        if (!endpoint) throw new Error('jiraSpeckit.azureOpenAiEndpoint is not configured.');
+        if (!apiKey)   throw new Error('jiraSpeckit.azureOpenAiApiKey is not configured.');
+
+        const resp = await fetch(
+            `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`,
+            {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+                body:    JSON.stringify({ messages, max_tokens: maxTokens, stream: true }),
+                signal:  AbortSignal.timeout(120000),
+            }
+        );
+        if (!resp.ok) throw new Error(`Azure OpenAI ${resp.status}: ${await resp.text()}`);
+        return this._readOpenAISSE(resp, onChunk);
+    }
+
+    async _streamOpenAI(cfg, messages, maxTokens, modelOverride, onChunk) {
+        const apiKey = cfg.get('openAiApiKey') || '';
+        const model  = modelOverride || cfg.get('openAiModel') || 'gpt-4o';
+        if (!apiKey) throw new Error('jiraSpeckit.openAiApiKey is not configured.');
+
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body:    JSON.stringify({ model, messages, max_tokens: maxTokens, stream: true }),
+            signal:  AbortSignal.timeout(120000),
+        });
+        if (!resp.ok) throw new Error(`OpenAI ${resp.status}: ${await resp.text()}`);
+        return this._readOpenAISSE(resp, onChunk);
+    }
+
+    async _streamCustom(cfg, messages, maxTokens, modelOverride, onChunk) {
+        const endpoint = (cfg.get('customApiEndpoint') || '').replace(/\/$/, '');
+        const apiKey   = cfg.get('customApiKey') || '';
+        const model    = modelOverride || cfg.get('customApiModel') || '';
+        if (!endpoint) throw new Error('jiraSpeckit.customApiEndpoint is not configured.');
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+        const body = { messages, max_tokens: maxTokens, stream: true };
+        if (model) body.model = model;
+
+        const resp = await fetch(`${endpoint}/chat/completions`, {
+            method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(120000),
+        });
+        if (!resp.ok) throw new Error(`Custom API ${resp.status}: ${await resp.text()}`);
+        return this._readOpenAISSE(resp, onChunk);
+    }
+
+    async _streamAnthropic(cfg, messages, maxTokens, modelOverride, onChunk) {
+        const apiKey = cfg.get('anthropicApiKey') || '';
+        const model  = modelOverride || cfg.get('anthropicModel') || 'claude-opus-4-5';
+        if (!apiKey) throw new Error('jiraSpeckit.anthropicApiKey is not configured.');
+
+        const systemMsg = messages.find(m => m.role === 'system');
+        const chatMsgs  = messages.filter(m => m.role !== 'system');
+        const body = { model, max_tokens: maxTokens, messages: chatMsgs, stream: true };
+        if (systemMsg) body.system = systemMsg.content;
+
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+            body:   JSON.stringify(body),
+            signal: AbortSignal.timeout(120000),
+        });
+        if (!resp.ok) throw new Error(`Anthropic ${resp.status}: ${await resp.text()}`);
+
+        // Anthropic SSE: event: content_block_delta / data: {"delta":{"type":"text_delta","text":"..."}}
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '', fullText = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n'); buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const json  = JSON.parse(line.slice(6));
+                    const delta = json.delta?.text || '';
+                    if (delta) { fullText += delta; onChunk(delta); }
+                } catch (_) {}
+            }
+        }
+        return fullText;
+    }
+
+    /** Shared SSE reader for OpenAI-compatible streams (Azure, OpenAI, custom). */
+    async _readOpenAISSE(resp, onChunk) {
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '', fullText = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n'); buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const data = line.slice(6).trim();
+                if (data === '[DONE]') return fullText;
+                try {
+                    const json  = JSON.parse(data);
+                    const delta = json.choices?.[0]?.delta?.content || '';
+                    if (delta) { fullText += delta; onChunk(delta); }
+                } catch (_) {}
+            }
+        }
+        return fullText;
+    }
+
     async _chatAzureOpenAI(cfg, messages, maxTokens, modelOverride = null) {
         const endpoint   = (cfg.get('azureOpenAiEndpoint') || '').replace(/\/$/, '');
         const apiKey     = cfg.get('azureOpenAiApiKey') || '';
@@ -310,6 +452,88 @@ class AIPipeline {
         const comment   = `SpecKit Auto-Resolution${imageInfo}\n\nSpec:\n${spec}\n\nPlan:\n${plan}\n\nTasks:\n${tasks}\n\nImplementation:\n${solution}\n\nGenerated files: ${fileList || '(none)'}`;
 
         return { spec, plan, tasks, solution, filesChanged, generatedFiles, comment, imagesAnalysed: images.map(i => i.filename) };
+    }
+
+    /**
+     * Phase 1: Generate spec, plan, tasks, and proposed test commands.
+     * Does NOT write any code. Present the result to the user before proceeding.
+     */
+    async planTicket(key, summary, description, workspaceContext = '', images = []) {
+        const provider  = this._cfg().get('aiProvider') || 'azure-openai';
+        const ctx       = workspaceContext ? `\n\nCurrent project context:\n${workspaceContext}` : '';
+        const hasImages = images && images.length > 0;
+        const imageNote = hasImages
+            ? `\n\nThis ticket includes ${images.length} attached screenshot(s)/image(s). Analyse them carefully.`
+            : '';
+
+        // Stage 1 — Specification
+        const specUserText = `Jira ticket ${key}: "${summary}"\n\nDescription: ${description || '(none)'}${imageNote}${ctx}\n\nWrite a feature specification. Use plain text.`;
+        const spec = await this._chat([
+            { role: 'system', content: 'You are a senior software architect. Write a concise, clear feature specification in plain text. Be specific about UI, data, and behaviour.' },
+            { role: 'user',   content: this._buildUserContent(provider, specUserText, hasImages ? images : []) },
+        ]);
+
+        // Stage 2 — Implementation plan (numbered steps, mentions specific files)
+        const plan = await this._chat([
+            { role: 'system', content: 'You are a senior software engineer. Write a numbered step-by-step technical implementation plan. Name the specific files to create or modify at each step.' },
+            { role: 'user',   content: `Feature spec:\n${spec}\n\nWrite a technical implementation plan.` },
+        ]);
+
+        // Stage 3 — Task checklist
+        const tasks = await this._chat([
+            { role: 'system', content: 'Convert a technical plan into a concrete checklist. Use "- [ ] Task description" format. Be specific and actionable.' },
+            { role: 'user',   content: `Plan:\n${plan}\n\nWrite a task checklist.` },
+        ]);
+
+        // Stage 4 — Test/verification commands
+        const testCmdsRaw = await this._chat([
+            { role: 'system', content: 'You are a senior developer. List ONLY the exact shell commands to run to verify the implementation — one per line, each prefixed with $. No explanations, no markdown, just commands.' },
+            { role: 'user',   content: `Project context:${ctx}\n\nFeature plan:\n${plan}\n\nList the test and verification commands to run after implementation.` },
+        ]);
+
+        // Parse lines like "$ npm test" or "npm test"
+        const testCommands = testCmdsRaw
+            .split('\n')
+            .map(l => l.trim().replace(/^\$\s*/, '').trim())
+            .filter(l => l && !l.startsWith('#') && !l.startsWith('//') && l.length < 200);
+
+        return { spec, plan, tasks, testCommands };
+    }
+
+    /**
+     * Phase 2: Generate actual code files based on the approved plan.
+     * Call this only after the user has confirmed planTicket() output.
+     */
+    async executeTicket({ spec, plan, tasks }, images = []) {
+        const provider  = this._cfg().get('aiProvider') || 'azure-openai';
+        const hasImages = images && images.length > 0;
+
+        const codeGenUserText = [
+            `Generate COMPLETE, production-ready code for every file that needs to be created or modified.`,
+            hasImages ? `UI screenshots are attached — match them exactly in layout, colours, fonts, and interactions.` : '',
+            `\nFormat EACH file as:\n===FILE:relative/path/to/file===\n(complete file content)\n===ENDFILE===\n`,
+            `Do not abbreviate, truncate, or use placeholders. Every file must be fully complete.\n`,
+            `Spec:\n${spec}\n\nPlan:\n${plan}\n\nTasks:\n${tasks}`,
+        ].filter(Boolean).join('\n');
+
+        const codeGenRaw = await this._chat([
+            {
+                role:    'system',
+                content: 'You are an expert full-stack developer. Output ONLY ===FILE:path=== ... ===ENDFILE=== blocks. No commentary outside the blocks.',
+            },
+            { role: 'user', content: this._buildUserContent(provider, codeGenUserText, hasImages ? images : []) },
+        ], 4000);
+
+        const generatedFiles = [];
+        const fileBlockRe = /===FILE:([^\n=]+)===\n([\s\S]*?)===ENDFILE===/g;
+        let match;
+        while ((match = fileBlockRe.exec(codeGenRaw)) !== null) {
+            generatedFiles.push({ path: match[1].trim().replace(/^\/+/, ''), content: match[2] });
+        }
+
+        const fileList = generatedFiles.map(f => f.path).join(', ');
+        const comment  = `SpecKit Auto-Resolution\n\nSpec:\n${spec}\n\nPlan:\n${plan}\n\nTasks:\n${tasks}\n\nGenerated files: ${fileList || '(none)'}`;
+        return { generatedFiles, comment, filesChanged: generatedFiles.map(f => f.path) };
     }
 }
 

@@ -9,6 +9,8 @@ const { DetailPanel }         = require('./detailPanel');
 const { JiraClient }          = require('./jiraClient');
 const { AIPipeline }          = require('./aiPipeline');
 const { ApprovalPanel }       = require('./approvalPanel');
+const { PlanPanel }           = require('./planPanel');
+const { WorkflowPanel }       = require('./workflowPanel');
 const { ChatPanel }           = require('./chatPanel');
 const { SettingsPanel, PROVIDERS } = require('./settingsPanel');
 const { getWorkspaceContext } = require('./workspaceScanner');
@@ -142,7 +144,7 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
 
                 (async () => {
                     try {
-                        statusBarItem.text = `$(sync~spin) SpecKit: resolving ${tid}…`;
+                        statusBarItem.text = `$(sync~spin) SpecKit: planning ${tid}…`;
                         const fields       = issue.fields || {};
                         const workspaceCtx = await getWorkspaceContext();
                         const descText     = fields.description
@@ -157,9 +159,35 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                             statusBarItem.text = `$(sync~spin) SpecKit: analysing ${images.length} image(s) for ${tid}…`;
                         }
 
-                        const result = await pipeline.resolve(
+                        // ── Phase 1: Plan ─────────────────────────────────────────
+                        // Generate spec, plan, tasks and test commands — NO code yet
+                        await WorkflowPanel.emit(context, { id: tid, type: 'ticket', summary: fields.summary || '', action: 'create' });
+                        await WorkflowPanel.emit(context, { id: tid, stageName: 'Spec', status: 'in-progress' });
+
+                        const planResult = await pipeline.planTicket(
                             tid, fields.summary || '', descText, workspaceCtx, images
                         );
+
+                        // Show the plan panel — user reviews and decides to proceed or cancel
+                        statusBarItem.text = `$(eye) SpecKit: review plan for ${tid}`;
+                        const proceed = await PlanPanel.show(context, tid, fields.summary || '', planResult);
+
+                        // Update workflow store with plan results
+                        await WorkflowPanel.emit(context, { id: tid, stageBatch: {
+                            Spec:  { status: 'done', outputPreview: planResult.spec  },
+                            Plan:  { status: 'done', outputPreview: planResult.plan  },
+                            Tasks: { status: 'done', outputPreview: planResult.tasks, tasks: require('./workflowPanel').parseTasks(planResult.tasks) },
+                        }});
+
+                        if (!proceed) {
+                            vscode.window.showInformationMessage(`SpecKit: cancelled plan for ${tid}.`);
+                            return;
+                        }
+
+                        // ── Phase 2: Execute ──────────────────────────────────────
+                        statusBarItem.text = `$(sync~spin) SpecKit: implementing ${tid}…`;
+                        await WorkflowPanel.emit(context, { id: tid, stageName: 'Implement', status: 'in-progress' });
+                        const result = await pipeline.executeTicket(planResult, images);
 
                         await jira.postComment(tid, result.comment);
                         await jira.transitionToDone(tid);
@@ -187,6 +215,24 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                                         vscode.window.showWarningMessage(`SpecKit: could not write ${gf.path}: ${writeErr.message}`);
                                     }
                                 }
+
+                                // ── Phase 3: Run tests ────────────────────────────
+                                // Open integrated terminal and run the verification commands
+                                if (writtenFiles.length && planResult.testCommands && planResult.testCommands.length) {
+                                    await WorkflowPanel.emit(context, { id: tid, stageName: 'Implement', status: 'done', outputPreview: `${writtenFiles.length} file(s) written: ${writtenFiles.join(', ')}` });
+                                    const terminal = vscode.window.createTerminal({
+                                        name: `SpecKit: ${tid}`,
+                                        cwd:  wsRoot,
+                                    });
+                                    terminal.show(false); // show without stealing focus
+                                    terminal.sendText(`echo "SpecKit: running tests for ${tid}…"`);
+                                    for (const cmd of planResult.testCommands.slice(0, 5)) {
+                                        terminal.sendText(cmd);
+                                    }
+                                    await WorkflowPanel.emit(context, { id: tid, stageName: 'Test', status: 'done',
+                                        testResults: planResult.testCommands.map(cmd => ({ command: cmd, exitCode: null, stdout: '(run in terminal — output not captured)', ranAt: new Date().toISOString() })),
+                                    });
+                                }
                             }
                         }
 
@@ -194,11 +240,11 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                             key:             tid,
                             summary:         fields.summary || '',
                             files_changed:   writtenFiles.length ? writtenFiles : result.filesChanged,
-                            images_analysed: result.imagesAnalysed || [],
-                            spec:            result.spec,
-                            plan:            result.plan,
-                            tasks:           result.tasks,
-                            solution:        result.solution,
+                            images_analysed: images.map(i => i.filename),
+                            spec:            planResult.spec,
+                            plan:            planResult.plan,
+                            tasks:           planResult.tasks,
+                            solution:        result.comment,
                             resolved_at:     new Date().toISOString(),
                         };
                         saveHistory([entry, ...resolvedHistory].slice(0, 50));
@@ -212,6 +258,7 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
                         vscode.window.showErrorMessage(`SpecKit failed on ${tid}: ${err.message}`);
                     } finally {
                         inFlight.delete(tid);
+                        statusBarItem.text = `$(bug) SpecKit`;
                     }
                 })();
             }
@@ -220,6 +267,10 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
 
     // ── Commands ────────────────────────────────────────────────────────────
     context.subscriptions.push(
+
+        vscode.commands.registerCommand('jiraSpeckit.openWorkflowPanel', () => {
+            WorkflowPanel.createOrShow(context);
+        }),
 
         vscode.commands.registerCommand('jiraSpeckit.refresh', () => {
             openProvider.refresh();
@@ -281,7 +332,9 @@ function activate(/** @type {vscode.ExtensionContext} */ context) {
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.openChat', () => {
-            ChatPanel.createOrShow(context, pipeline);
+            ChatPanel.createOrShow(context, pipeline, async (patch) => {
+                await WorkflowPanel.emit(context, patch);
+            });
         }),
 
         vscode.commands.registerCommand('jiraSpeckit.selectProvider', async () => {

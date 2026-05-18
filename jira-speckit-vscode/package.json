@@ -2,7 +2,7 @@
   "name": "jira-speckit",
   "displayName": "Jira Ticket Auto Resolver (SpecKit)",
   "description": "Automatically resolve Jira tickets with AI — analyses screenshots, generates code, and applies changes to your workspace with one-click approval.",
-  "version": "1.5.8",
+  "version": "1.6.3",
   "publisher": "jivan",
   "engines": {
     "vscode": "^1.85.0"
@@ -194,6 +194,12 @@
         "command": "jiraSpeckit.openChat",
         "title": "Open SpecKit Chat",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "jiraSpeckit.openWorkflowPanel",
+        "title": "Open Workflow Panel",
+        "category": "SpecKit",
+        "icon": "$(list-tree)"
       },
       {
         "command": "jiraSpeckit.selectProvider",
