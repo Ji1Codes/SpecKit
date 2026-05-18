@@ -1,4 +1,9 @@
-// chatPanel.js — SpecKit Chat (Copilot-style UI)
+#!/usr/bin/env python3
+"""Writes the new Copilot-style chatPanel.js"""
+import os, sys
+
+# Python raw string — backticks, ${}, \s, \n in regex all pass through literally
+CONTENT = r"""// chatPanel.js — SpecKit Chat (Copilot-style UI)
 'use strict';
 
 const vscode = require('vscode');
@@ -691,3 +696,10 @@ function getChatScript(modelsJson) {
 }
 
 module.exports = { ChatPanel };
+"""
+
+out = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'chatPanel.js'))
+with open(out, 'w', encoding='utf-8', newline='\n') as f:
+    f.write(CONTENT.lstrip('\n'))
+sz = os.path.getsize(out)
+print(f'Written {sz} bytes to {out}')

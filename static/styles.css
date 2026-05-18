@@ -13,6 +13,11 @@
   --color-border: #E0E0E0;
   --gradient-primary: linear-gradient(90deg, #3388FF 0%, #0057FF 100%);
   --shadow: 0 8px 32px rgba(0, 87, 255, 0.10);
+  --eq-gradient: linear-gradient(90deg, #4f8cff 0%, #0057FF 100%);
+  --eq-bg: #4f8cff;
+  --eq-bg-hover: #0057FF;
+  --eq-bg-active: #0033AA;
+  --eq-text: #fff;
 }
 
 * {
@@ -170,64 +175,75 @@ body {
 }
 
 .btn-eq {
-  background: linear-gradient(90deg, #3388FF 0%, #0057FF 100%);
-  color: var(--color-on-primary);
+  background: var(--eq-gradient);
+  color: var(--eq-text);
   border-color: var(--color-primary);
   font-weight: 700;
+  box-shadow: 0 4px 16px rgba(79,140,255,0.13);
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
 }
 
 .btn-eq:hover, .btn-eq:focus-visible {
   background: linear-gradient(90deg, #0057FF 0%, #3388FF 100%);
-  color: var(--color-on-primary);
-  border-color: var(--color-primary-dark);
+  color: #fff;
+  border-color: #0057FF;
+  box-shadow: 0 8px 24px rgba(79,140,255,0.18);
 }
 
-.btn-fn {
-  background: #F5F7FA;
-  color: var(--color-primary-dark);
-  border-color: var(--color-border);
-}
-
-.btn-fn:hover, .btn-fn:focus-visible {
-  background: var(--color-warning);
-  color: #1A1A1A;
-  border-color: var(--color-warning);
+.btn-eq:active {
+  background: #0033AA;
+  color: #fff;
+  border-color: #0033AA;
+  box-shadow: 0 2px 8px rgba(0,87,255,0.13);
 }
 
 .btn-wide {
   grid-column: span 2;
 }
 
-.hint {
-  margin-top: 24px;
-  font-size: 14px;
-  color: #6B6B6B;
-  opacity: 0.85;
-  text-align: center;
-  padding: 0 4px;
+.btn-fn {
+  background: #F5F7FA;
+  color: #0057FF;
+  border-color: #B3D1FF;
+  font-weight: 700;
 }
 
+.btn-fn:hover, .btn-fn:focus-visible {
+  background: #B3D1FF;
+  color: #fff;
+  border-color: #0057FF;
+}
+
+.btn-fn:active {
+  background: #3388FF;
+  color: #fff;
+  border-color: #3388FF;
+}
+
+.hint {
+  margin-top: 24px;
+  font-size: 13px;
+  color: #888;
+  opacity: 0.85;
+  text-align: center;
+}
+
+/* Responsive tweaks */
 @media (max-width: 600px) {
   .calculator {
     padding: 18px 6px 12px 6px;
-    border-radius: 14px;
+    border-radius: 16px;
   }
   .display {
-    padding: 10px 6px 8px 6px;
+    padding: 12px 6px 8px 6px;
     border-radius: 10px;
   }
   .grid {
-    gap: 8px;
+    gap: 10px;
   }
   .btn {
-    border-radius: 10px;
-    font-size: 16px;
     padding: 10px 0;
-  }
-  .title {
-    font-size: 22px;
-  }
-  .subtitle {
-    font-size: 12px;
+    font-size: 16px;
+    border-radius: 10px;
   }
 }
