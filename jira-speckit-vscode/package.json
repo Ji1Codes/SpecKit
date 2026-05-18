@@ -2,13 +2,25 @@
   "name": "jira-speckit",
   "displayName": "Jira Ticket Auto Resolver (SpecKit)",
   "description": "Automatically resolve Jira tickets with AI — analyses screenshots, generates code, and applies changes to your workspace with one-click approval.",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "publisher": "jivan",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
-  "keywords": ["jira", "speckit", "ai", "automation", "tickets"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "jira",
+    "speckit",
+    "ai",
+    "automation",
+    "tickets"
+  ],
   "icon": "media/icon.png",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./src/extension.js",
   "contributes": {
     "configuration": {
@@ -37,7 +49,13 @@
         "jiraSpeckit.aiProvider": {
           "type": "string",
           "default": "azure-openai",
-          "enum": ["azure-openai", "openai", "anthropic", "google", "custom"],
+          "enum": [
+            "azure-openai",
+            "openai",
+            "anthropic",
+            "google",
+            "custom"
+          ],
           "enumDescriptions": [
             "Azure OpenAI (GPT-4o, GPT-4.1, etc.)",
             "OpenAI (GPT-4o, o1, etc.)",

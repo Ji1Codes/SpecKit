@@ -148,21 +148,22 @@ class ChatPanel {
             .map(p => '<option value="' + p.id + '"' + (p.id === initProv ? ' selected' : '') + '>' + p.label + '</option>')
             .join('');
         const modelsJson  = JSON.stringify(Object.fromEntries(provOpts.map(p => [p.id, p.model])));
-        return buildHtml(provOptHtml, initModel, modelsJson);
+        const nonce = [...Array(32)].map(() => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.random()*62|0]).join('');
+        return buildHtml(provOptHtml, initModel, modelsJson, nonce);
     }
 }
 
 /* ─── HTML builder (no nested template literals) ─────────────────────── */
-function buildHtml(provOptHtml, initModel, modelsJson) {
+function buildHtml(provOptHtml, initModel, modelsJson, nonce) {
     return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
         '<meta charset="UTF-8">\n' +
-        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\';">\n' +
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; script-src \'nonce-' + nonce + '\' \'unsafe-inline\';">\n' +
         '<meta name="viewport" content="width=device-width,initial-scale=1">\n' +
         '<title>SpecKit Chat</title>\n' +
         getChatCSS() +
         '</head>\n<body>\n' +
         getChatBody(provOptHtml, initModel) +
-        '<script>\n' + getChatScript(modelsJson) + '\n</script>\n' +
+        '<script nonce="' + nonce + '">\n' + getChatScript(modelsJson) + '\n</script>\n' +
         '</body>\n</html>';
 }
 
