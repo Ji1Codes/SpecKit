@@ -251,9 +251,9 @@ def _safe_write(rel_path: str, content: str) -> None:
 
 async def speckit_edit(summary: str, solution: str, existing_files: dict[str, str]) -> list[str]:
     """Step 5 — Edit: apply the SpecKit solution by rewriting actual workspace files."""
-    # Build a compact snapshot of the current codebase for context
+    # Build a compact snapshot of the current codebase for context (truncate large files)
     files_context = "\n\n".join(
-        f"### {rel}\n```\n{content[:4000]}\n```"
+        f"### {rel}\n```\n{content[:3000]}\n```"
         for rel, content in existing_files.items()
     )
     raw = await _llm(
@@ -264,21 +264,21 @@ async def speckit_edit(summary: str, solution: str, existing_files: dict[str, st
             "  \"file\": relative path (e.g. \"static/app.js\")\n"
             "  \"content\": complete new file content (full replacement, not a diff)\n"
             "Only include files that genuinely need to change. "
-            "Only use paths that already exist in the codebase — do not invent new files."
+            "You may create new files if required — use a sensible relative path."
         ),
         user=(
             f"Ticket: {summary}\n\n"
             f"Solution to implement:\n{solution}\n\n"
             f"Current codebase:\n\n{files_context}"
         ),
-        max_tokens=4096,
+        max_tokens=8192,
         json_mode=True,
     )
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        logger.warning(f"[EDIT] LLM returned invalid JSON: {exc}")
+        logger.warning(f"[EDIT] LLM returned invalid JSON: {exc}\nRaw response (first 500 chars): {raw[:500]}")
         return []
 
     changed: list[str] = []

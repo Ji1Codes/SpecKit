@@ -2,8 +2,12 @@
   "name": "jira-speckit",
   "displayName": "Jira Ticket Auto Resolver (SpecKit)",
   "description": "Automatically resolve Jira tickets with AI — analyses screenshots, generates code, and applies changes to your workspace with one-click approval.",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "publisher": "jivan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ji1Codes/SpecKit"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
